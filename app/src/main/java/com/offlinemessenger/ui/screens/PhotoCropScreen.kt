@@ -70,6 +70,8 @@ fun PhotoCropScreen(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
+    // Viewport size captured from BoxWithConstraints for the save math.
+    var viewportPx by remember { mutableStateOf(0f) }
 
     if (bitmap == null) {
         onDone(null)
@@ -113,6 +115,7 @@ fun PhotoCropScreen(
             ) {
                 val sideDp = maxWidth
                 val sidePx = with(density) { sideDp.toPx() }
+                viewportPx = sidePx
                 // Cover scale: bitmap scaled to fill the square.
                 val s0 = maxOf(sidePx / bmp.width, sidePx / bmp.height)
 
@@ -153,22 +156,23 @@ fun PhotoCropScreen(
                             },
                     )
                 }
-                // Save uses the same math.
-                Spacer(Modifier.height(24.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = IOSBlue,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    onClick = {
-                        onDone(cropSquare(bmp, sidePx, s0, scale, offset))
-                    },
-                ) {
-                    Icon(
-                        Icons.Filled.Check, "save",
-                        tint = IOSText,
-                        modifier = Modifier.padding(18.dp).size(28.dp),
-                    )
-                }
+            }
+            Spacer(Modifier.height(24.dp))
+            // Save button (in the Column scope, so align resolves).
+            Surface(
+                shape = CircleShape,
+                color = IOSBlue,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                onClick = {
+                    val s0 = maxOf(viewportPx / bmp.width, viewportPx / bmp.height)
+                    onDone(cropSquare(bmp, viewportPx, s0, scale, offset))
+                },
+            ) {
+                Icon(
+                    Icons.Filled.Check, "save",
+                    tint = IOSText,
+                    modifier = Modifier.padding(18.dp).size(28.dp),
+                )
             }
         }
     }

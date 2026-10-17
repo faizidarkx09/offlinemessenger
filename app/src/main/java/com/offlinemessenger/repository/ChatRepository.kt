@@ -10,6 +10,7 @@ import com.offlinemessenger.data.local.dao.ConversationDao
 import com.offlinemessenger.data.local.dao.GroupDao
 import com.offlinemessenger.data.local.dao.MessageDao
 import com.offlinemessenger.data.local.dao.RelayQueueDao
+import com.offlinemessenger.data.local.entity.ContactEntity
 import com.offlinemessenger.data.local.entity.ConversationEntity
 import com.offlinemessenger.data.local.entity.GroupEntity
 import com.offlinemessenger.data.local.entity.GroupMemberEntity

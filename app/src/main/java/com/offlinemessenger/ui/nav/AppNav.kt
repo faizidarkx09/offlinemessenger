@@ -175,7 +175,7 @@ fun AppNav(
                         photoB64 = c?.photoB64 ?: "",
                     )
                     androidx.compose.foundation.layout.Spacer(
-                        androidx.compose.foundation.layout.Modifier.width(12.dp),
+                        androidx.compose.ui.Modifier.width(12.dp),
                     )
                     Text("${c?.displayName ?: "Someone nearby"} wants to chat with you.")
                 }
