@@ -8,10 +8,20 @@ import androidx.security.crypto.MasterKey
 import java.util.UUID
 
 /**
+ * Minimal identity-storage surface needed by [CryptoManager].
+ * Implemented by [SecureStore]; faked in unit tests.
+ */
+interface IdentityStore {
+    fun deviceId(): UUID
+    fun keyPair(): Pair<ByteArray, ByteArray>?
+    fun storeKeyPair(publicKey: ByteArray, secretKey: ByteArray)
+}
+
+/**
  * Keystore-backed local storage for identity material and settings.
  * The secret key never leaves this encrypted store in plaintext.
  */
-class SecureStore(context: Context) {
+class SecureStore(context: Context) : IdentityStore {
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -26,7 +36,7 @@ class SecureStore(context: Context) {
     )
 
     /** Stable 128-bit routing identity for this device. Generated once. */
-    fun deviceId(): UUID {
+    override fun deviceId(): UUID {
         val existing = prefs.getString(KEY_DEVICE_ID, null)
         if (existing != null) return UUID.fromString(existing)
         val fresh = UUID.randomUUID()
@@ -45,14 +55,14 @@ class SecureStore(context: Context) {
         return "User-$id"
     }
 
-    /** X25519 key-exchange keypair, base64-encoded. Generated once via libsodium. */
-    fun keyPair(): Pair<ByteArray, ByteArray>? {
+    /** X25519 key-exchange keypair, base64-encoded. Generated once. */
+    override fun keyPair(): Pair<ByteArray, ByteArray>? {
         val pk = prefs.getString(KEY_PUB, null) ?: return null
         val sk = prefs.getString(KEY_SEC, null) ?: return null
         return Base64.decode(pk, Base64.NO_WRAP) to Base64.decode(sk, Base64.NO_WRAP)
     }
 
-    fun storeKeyPair(publicKey: ByteArray, secretKey: ByteArray) {
+    override fun storeKeyPair(publicKey: ByteArray, secretKey: ByteArray) {
         prefs.edit()
             .putString(KEY_PUB, Base64.encodeToString(publicKey, Base64.NO_WRAP))
             .putString(KEY_SEC, Base64.encodeToString(secretKey, Base64.NO_WRAP))

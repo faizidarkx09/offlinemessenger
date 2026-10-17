@@ -10,7 +10,7 @@ coreKtx = "1.13.1"
 activityCompose = "1.9.0"
 securityCrypto = "1.1.0-alpha06"
 navigationCompose = "2.7.7"
-lazysodium = "5.1.0"
+bouncycastle = "1.78.1"
 junit = "4.13.2"
 robolectric = "4.11"
 mockk = "1.13.11"
@@ -35,7 +35,7 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
-lazysodium-android = { group = "com.goterl", name = "lazysodium-android", version.ref = "lazysodium" }
+bouncycastle-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 junit4 = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }

@@ -42,12 +42,6 @@ android {
     buildFeatures {
         compose = true
     }
-    packaging {
-        resources {
-            // Lazysodium + JNA ship native libs for several ABIs; keep first match.
-            pickFirsts.add("**/libc++_shared.so")
-        }
-    }
 }
 
 dependencies {
@@ -77,14 +71,10 @@ dependencies {
     // Encrypted local storage (Android Keystore backed)
     implementation(libs.androidx.security.crypto)
 
-    // Reviewed crypto: libsodium via LazySodium-Android.
-    // JNA MUST be the AAR variant on Android: it bundles libjnidispatch.so per
-    // ABI, which JNA loads via System.loadLibrary. lazysodium pulls the plain
-    // JNA jar transitively -> excluded here to avoid duplicate classes.
-    implementation("com.goterl:lazysodium-android:5.1.0@aar") {
-        exclude(group = "net.java.dev.jna", module = "jna")
-    }
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    // Crypto: pure-Java BouncyCastle (X25519 + XSalsa20-Poly1305 + Blake2b).
+    // Deliberately zero native code / zero JNI: no .so to fail loading,
+    // which was the #1 crash source when libsodium/JNA was used.
+    implementation(libs.bouncycastle.bcprov)
 
     // Unit tests
     testImplementation(libs.junit4)
