@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base activity theme; the real theme is the Compose Material3 theme. -->
+    <style name="Theme.OfflineMessenger" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#141716</item>
+        <item name="android:statusBarColor">#141716</item>
+        <item name="android:navigationBarColor">#141716</item>
+    </style>
+</resources>

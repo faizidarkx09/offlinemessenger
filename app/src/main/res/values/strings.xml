@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OfflineMessenger</string>
+    <string name="service_channel_name">OfflineMessenger radio</string>
+    <string name="service_channel_desc">Keeps Bluetooth messaging available while the app is in the background</string>
+    <string name="service_notification_title">OfflineMessenger is listening</string>
+    <string name="service_notification_text">Bluetooth radio on — nearby peers can reach you</string>
+</resources>
