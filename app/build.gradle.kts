@@ -77,8 +77,14 @@ dependencies {
     // Encrypted local storage (Android Keystore backed)
     implementation(libs.androidx.security.crypto)
 
-    // Reviewed crypto: libsodium via LazySodium-Android (JNA comes transitively)
-    implementation(libs.lazysodium.android) { artifact { type = "aar" } }
+    // Reviewed crypto: libsodium via LazySodium-Android.
+    // JNA MUST be the AAR variant on Android: it bundles libjnidispatch.so per
+    // ABI, which JNA loads via System.loadLibrary. lazysodium pulls the plain
+    // JNA jar transitively -> excluded here to avoid duplicate classes.
+    implementation("com.goterl:lazysodium-android:5.1.0@aar") {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 
     // Unit tests
     testImplementation(libs.junit4)
