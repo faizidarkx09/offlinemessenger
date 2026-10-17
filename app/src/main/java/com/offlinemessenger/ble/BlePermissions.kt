@@ -12,17 +12,23 @@ import androidx.core.content.ContextCompat
  */
 object BlePermissions {
 
-    fun required(): Array<String> =
+    fun required(): Array<String> {
+        val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(
+            perms += listOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_ADVERTISE,
                 Manifest.permission.BLUETOOTH_CONNECT,
             )
         } else {
             // On API <= 30 BLE scanning is gated behind location permission.
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
         }
+        if (Build.VERSION.SDK_INT >= 33) {
+            perms += Manifest.permission.POST_NOTIFICATIONS
+        }
+        return perms.toTypedArray()
+    }
 
     fun missing(context: Context): List<String> =
         required().filter {

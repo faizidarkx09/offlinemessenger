@@ -45,4 +45,18 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE timestampMs < :olderThanMs")
     suspend fun deleteOlderThan(olderThanMs: Long): Int
+
+    @Query("UPDATE messages SET reactionsJson = :json WHERE msgId = :msgId")
+    suspend fun setReactions(msgId: String, json: String)
+
+    @Query("UPDATE messages SET status = 'READ' WHERE msgId = :msgId AND isMine = 1")
+    suspend fun markMyMessageRead(msgId: String)
+
+    /** Global message search across all conversations. */
+    @Query("SELECT * FROM messages WHERE body LIKE '%' || :q || '%' ORDER BY timestampMs DESC LIMIT 50")
+    suspend fun search(q: String): List<MessageEntity>
+
+    /** Unread incoming messages, for read-receipt fan-out on markRead. */
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND isMine = 0 AND isRead = 0 AND status = 'RECEIVED'")
+    suspend fun unreadReceived(conversationId: String): List<MessageEntity>
 }

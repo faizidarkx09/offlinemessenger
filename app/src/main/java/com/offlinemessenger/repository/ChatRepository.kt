@@ -6,15 +6,26 @@ import com.offlinemessenger.ble.BleTransport
 import com.offlinemessenger.crypto.CryptoManager
 import com.offlinemessenger.crypto.SecureStore
 import com.offlinemessenger.data.local.dao.ContactDao
+import com.offlinemessenger.data.local.dao.ConversationDao
+import com.offlinemessenger.data.local.dao.GroupDao
 import com.offlinemessenger.data.local.dao.MessageDao
 import com.offlinemessenger.data.local.dao.RelayQueueDao
+import com.offlinemessenger.data.local.entity.ConversationEntity
+import com.offlinemessenger.data.local.entity.GroupEntity
+import com.offlinemessenger.data.local.entity.GroupMemberEntity
 import com.offlinemessenger.data.local.entity.MessageEntity
 import com.offlinemessenger.data.local.entity.MessageStatus
 import com.offlinemessenger.data.local.entity.RelayQueueEntity
+import com.offlinemessenger.data.local.entity.reactions
+import com.offlinemessenger.data.local.entity.reactionsToJson
 import com.offlinemessenger.protocol.DecodedPacket
+import com.offlinemessenger.protocol.GroupMemberSpec
 import com.offlinemessenger.protocol.HelloPayload
+import com.offlinemessenger.protocol.MessageEnvelope
 import com.offlinemessenger.protocol.Packet
 import com.offlinemessenger.protocol.PacketType
+import com.offlinemessenger.protocol.packMembers
+import com.offlinemessenger.protocol.unpackMembers
 import com.offlinemessenger.relay.AckTracker
 import com.offlinemessenger.relay.RelayEngine
 import kotlinx.coroutines.CoroutineScope
@@ -26,8 +37,16 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+/** Structured event for system notifications (new message arrived). */
+data class NotifyEvent(
+    val title: String,
+    val body: String,
+    val conversationId: String,
+)
+
 /**
- * Messaging orchestration: send/receive, ACKs, relaying, store-and-forward.
+ * Messaging orchestration: send/receive, ACKs, relaying, store-and-forward,
+ * replies, reactions, read receipts, groups.
  *
  * Delivery truth: a message becomes DELIVERED only when the destination's
  * ACK packet arrives. Everything else is SENT (transmitted) or PENDING.
@@ -37,6 +56,8 @@ class ChatRepository(
     private val messageDao: MessageDao,
     private val contactDao: ContactDao,
     private val relayQueueDao: RelayQueueDao,
+    private val groupDao: GroupDao,
+    private val conversationDao: ConversationDao,
     private val crypto: CryptoManager,
     private val store: SecureStore,
     private val transport: BleTransport,
@@ -51,6 +72,8 @@ class ChatRepository(
         private const val ACK_CHECK_MS = 2_000L
         private const val MAINTENANCE_MS = 60_000L
         private const val ROUTE_ADVERT_MS = 30_000L
+        /** Group conversation ids are prefixed so 1:1 and group chats never collide. */
+        const val GROUP_PREFIX = "group:"
     }
 
     val myDeviceId: UUID get() = transport.myDeviceId
@@ -58,13 +81,40 @@ class ChatRepository(
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val events: SharedFlow<String> = _events
 
+    private val _notifications = MutableSharedFlow<NotifyEvent>(extraBufferCapacity = 32)
+    val notifications: SharedFlow<NotifyEvent> = _notifications
+
     private val started = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun conversation(id: String): Flow<List<MessageEntity>> = messageDao.conversation(id)
     fun latestPerConversation(): Flow<List<MessageEntity>> = messageDao.latestPerConversation()
     fun unreadCount(id: String): Flow<Int> = messageDao.unreadCount(id)
-    suspend fun markRead(id: String) = messageDao.markRead(id)
+    fun conversationPrefs(): Flow<List<ConversationEntity>> = conversationDao.all()
     suspend fun relayQueueSize(): Int = relayQueueDao.count()
+    suspend fun searchMessages(q: String): List<MessageEntity> =
+        if (q.isBlank()) emptyList() else messageDao.search(q)
+
+    suspend fun setPinned(conversationId: String, pinned: Boolean) {
+        conversationDao.insert(ConversationEntity(conversationId))
+        conversationDao.setPinned(conversationId, pinned)
+    }
+
+    suspend fun isPinned(conversationId: String): Boolean =
+        conversationDao.get(conversationId)?.pinned == true
+
+    /** Marks messages read AND sends read receipts to their senders. */
+    suspend fun markRead(conversationId: String) {
+        val unread = messageDao.unreadReceived(conversationId)
+        messageDao.markRead(conversationId)
+        for (m in unread) sendReadReceipt(m)
+    }
+
+    fun group(groupId: String): Flow<GroupEntity?> = groupDao.groupFlow(groupId)
+
+    suspend fun getGroupOnce(groupId: String): GroupEntity? = groupDao.getGroup(groupId)
+
+    fun groupMembers(groupId: String): Flow<List<GroupMemberEntity>> =
+        groupDao.members(groupId)
 
     fun start() {
         if (!started.compareAndSet(false, true)) return // service restarts must not double-wire
@@ -89,15 +139,29 @@ class ChatRepository(
         scope.launch { routeAdvertLoop() }
     }
 
+    // ------------------------------------------------------------ crypto helpers
+
+    private fun sessionKeysFor(deviceId: UUID, keyB64: String): CryptoManager.SessionKeys? {
+        val peerKey = runCatching { Base64.decode(keyB64, Base64.NO_WRAP) }.getOrNull()
+            ?: return null
+        return crypto.sessionKeys(deviceId, peerKey)
+    }
+
+    private suspend fun displayNameOf(deviceId: String): String =
+        contactDao.get(deviceId)?.displayName ?: "Unknown"
+
     // ------------------------------------------------------------ sending
 
     /**
      * Sends a text message. Requires a prior HELLO key exchange with the
-     * destination (trust-on-first-use): without the peer's public key there
-     * is nothing to encrypt to, so the send is refused rather than sent
-     * insecurely.
+     * destination (trust-on-first-use).
      */
-    suspend fun sendMessage(destId: UUID, text: String): Result<Unit> {
+    suspend fun sendMessage(
+        destId: UUID,
+        text: String,
+        replyTo: MessageEntity? = null,
+        forwarded: Boolean = false,
+    ): Result<Unit> {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return Result.failure(IllegalArgumentException("empty message"))
         if (trimmed.toByteArray(Charsets.UTF_8).size > 4 * 1024) {
@@ -107,39 +171,39 @@ class ChatRepository(
             ?: return Result.failure(
                 IllegalStateException("No key exchanged with this contact yet — meet in Bluetooth range first."),
             )
-        val peerKey = try {
-            Base64.decode(contact.publicKeyB64, Base64.NO_WRAP)
-        } catch (_: Exception) {
-            return Result.failure(IllegalStateException("Stored key is corrupt; re-exchange HELLO."))
-        }
-        val keys = crypto.sessionKeys(destId, peerKey)
+        val keys = sessionKeysFor(destId, contact.publicKeyB64)
             ?: return Result.failure(IllegalStateException("Key agreement failed."))
-        val sealed = crypto.encrypt(keys, trimmed.toByteArray(Charsets.UTF_8))
+        val env = MessageEnvelope(
+            kind = "chat",
+            text = trimmed,
+            replyTo = replyTo?.msgId,
+            replyBody = replyTo?.body?.take(120),
+            replySender = replyTo?.let {
+                if (it.isMine) "You" else runCatching {
+                    displayNameOf(it.senderId)
+                }.getOrDefault("Unknown")
+            },
+            forwarded = forwarded,
+        )
+        val sealed = crypto.encrypt(keys, env.encode())
             ?: return Result.failure(IllegalStateException("Encryption failed."))
 
         val msgId = UUID.randomUUID()
         val now = System.currentTimeMillis()
         val packet = Packet.encode(
-            type = PacketType.MSG,
-            ttl = Packet.DEFAULT_TTL,
-            messageId = msgId,
-            senderId = myDeviceId,
-            destId = destId,
-            timestampMs = now,
-            payload = sealed,
+            type = PacketType.MSG, ttl = Packet.DEFAULT_TTL, messageId = msgId,
+            senderId = myDeviceId, destId = destId, timestampMs = now, payload = sealed,
         )
         messageDao.insert(
             MessageEntity(
-                msgId = msgId.toString(),
-                conversationId = destId.toString(),
-                senderId = myDeviceId.toString(),
-                destId = destId.toString(),
-                body = trimmed,
-                timestampMs = now,
-                status = MessageStatus.PENDING,
-                isMine = true,
-                ttl = Packet.DEFAULT_TTL.toInt(),
-                hops = 0,
+                msgId = msgId.toString(), conversationId = destId.toString(),
+                senderId = myDeviceId.toString(), destId = destId.toString(),
+                body = trimmed, timestampMs = now, status = MessageStatus.PENDING,
+                isMine = true, ttl = Packet.DEFAULT_TTL.toInt(), hops = 0,
+                replyToId = replyTo?.msgId,
+                replyToBody = replyTo?.body?.take(120),
+                replyToSender = replyTo?.let { if (it.isMine) "You" else contact.displayName },
+                forwarded = forwarded,
             ),
         )
         return if (sendRouted(destId, null, packet)) {
@@ -148,10 +212,201 @@ class ChatRepository(
             Result.success(Unit)
         } else {
             enqueueRelay(msgId, destId, packet, now, nextHopId = null)
-            // stays PENDING: queued for store-and-forward, NOT delivered
             _events.tryEmit("queued for later delivery")
             Result.success(Unit)
         }
+    }
+
+    /**
+     * Sends a reaction. Idempotent (explicit add/remove), so ACK retries are safe.
+     */
+    suspend fun sendReaction(target: MessageEntity, emoji: String): Result<Unit> {
+        val current = target.reactions()
+        val reactors = current[emoji] ?: emptySet()
+        val add = myDeviceId.toString() !in reactors
+        val env = MessageEnvelope(kind = "react", target = target.msgId, emoji = emoji, add = add)
+        return if (target.conversationId.startsWith(GROUP_PREFIX)) {
+            val groupId = target.conversationId.removePrefix(GROUP_PREFIX)
+            sendToGroupMembers(groupId, env, trackMsgId = UUID.randomUUID(), trackAck = false)
+            applyReactionLocal(target.msgId, emoji, myDeviceId.toString(), add)
+            Result.success(Unit)
+        } else {
+            val destId = runCatching { UUID.fromString(target.conversationId) }.getOrNull()
+                ?: return Result.failure(IllegalStateException("bad conversation"))
+            sendControlMessage(destId, env)
+            applyReactionLocal(target.msgId, emoji, myDeviceId.toString(), add)
+            Result.success(Unit)
+        }
+    }
+
+    /** Sends an encrypted control message (react/read/gsync) to one peer. */
+    private suspend fun sendControlMessage(destId: UUID, env: MessageEnvelope): Boolean {
+        val contact = contactDao.get(destId.toString()) ?: return false
+        val keys = sessionKeysFor(destId, contact.publicKeyB64) ?: return false
+        val sealed = crypto.encrypt(keys, env.encode()) ?: return false
+        val packet = Packet.encode(
+            type = PacketType.MSG, ttl = Packet.DEFAULT_TTL,
+            messageId = UUID.randomUUID(), senderId = myDeviceId, destId = destId,
+            timestampMs = System.currentTimeMillis(), payload = sealed,
+        )
+        return sendRouted(destId, null, packet)
+    }
+
+    private suspend fun applyReactionLocal(msgId: String, emoji: String, deviceId: String, add: Boolean) {
+        val msg = messageDao.getById(msgId) ?: return
+        val map = msg.reactions().mapValues { it.value.toMutableSet() }.toMutableMap()
+        if (add) map.getOrPut(emoji) { mutableSetOf() }.add(deviceId)
+        else {
+            map[emoji]?.remove(deviceId)
+            if (map[emoji].isNullOrEmpty()) map.remove(emoji)
+        }
+        messageDao.setReactions(msgId, reactionsToJson(map.mapValues { it.value.toSet() }))
+    }
+
+    private suspend fun sendReadReceipt(m: MessageEntity) {
+        val destId = runCatching { UUID.fromString(m.senderId) }.getOrNull() ?: return
+        // Don't send receipts for our own messages or non-chat traffic.
+        if (m.isMine) return
+        scope.launch {
+            sendControlMessage(destId, MessageEnvelope(kind = "read", target = m.msgId))
+        }
+    }
+
+    // ------------------------------------------------------------ groups
+
+    suspend fun createGroup(name: String, memberDeviceIds: List<String>): Result<String> {
+        val clean = name.trim().take(40)
+        if (clean.isEmpty()) return Result.failure(IllegalArgumentException("Group name needed"))
+        if (memberDeviceIds.isEmpty()) return Result.failure(IllegalArgumentException("Add at least one member"))
+        val groupId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        groupDao.upsertGroup(
+            GroupEntity(groupId, clean, myDeviceId.toString(), now, iAmAdmin = true),
+        )
+        val members = mutableListOf<GroupMemberEntity>()
+        members += GroupMemberEntity(groupId, myDeviceId.toString(), "You", "", isAdmin = true)
+        for (id in memberDeviceIds.distinct()) {
+            val c = contactDao.get(id) ?: continue
+            members += GroupMemberEntity(groupId, id, c.displayName, c.publicKeyB64, isAdmin = false)
+        }
+        groupDao.upsertMembers(members)
+        // Tell members about the group (they create it locally on receipt).
+        syncGroup(groupId)
+        return Result.success(groupId)
+    }
+
+    /** Admin pushes the current member list to all members. */
+    suspend fun syncGroup(groupId: String) {
+        val group = groupDao.getGroup(groupId) ?: return
+        val members = groupDao.membersOnce(groupId).filter { it.deviceId != myDeviceId.toString() }
+        if (members.isEmpty()) return
+        val packed = packMembers(
+            members.map { Triple(it.deviceId, it.displayName, it.publicKeyB64) } +
+                Triple(myDeviceId.toString(), "You", ""),
+            admins = members.filter { it.isAdmin }.map { it.deviceId }.toSet() +
+                myDeviceId.toString(),
+        )
+        val env = MessageEnvelope(kind = "gsync", group = groupId, groupName = group.name, members = packed)
+        sendToGroupMembers(groupId, env, trackMsgId = UUID.randomUUID())
+    }
+
+    suspend fun addGroupMember(groupId: String, deviceId: String): Boolean {
+        val group = groupDao.getGroup(groupId) ?: return false
+        if (!group.iAmAdmin) return false
+        val c = contactDao.get(deviceId) ?: return false
+        groupDao.upsertMember(GroupMemberEntity(groupId, deviceId, c.displayName, c.publicKeyB64))
+        syncGroup(groupId)
+        return true
+    }
+
+    suspend fun removeGroupMember(groupId: String, deviceId: String): Boolean {
+        val group = groupDao.getGroup(groupId) ?: return false
+        if (!group.iAmAdmin || deviceId == myDeviceId.toString()) return false
+        groupDao.removeMember(groupId, deviceId)
+        syncGroup(groupId)
+        return true
+    }
+
+    suspend fun sendGroupMessage(
+        groupId: String,
+        text: String,
+        replyTo: MessageEntity? = null,
+        forwarded: Boolean = false,
+    ): Result<Unit> {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return Result.failure(IllegalArgumentException("empty message"))
+        val group = groupDao.getGroup(groupId)
+            ?: return Result.failure(IllegalStateException("Group not found"))
+        val env = MessageEnvelope(
+            kind = "chat", text = trimmed,
+            replyTo = replyTo?.msgId,
+            replyBody = replyTo?.body?.take(120),
+            replySender = replyTo?.let {
+                if (it.isMine) "You" else runCatching { displayNameOf(it.senderId) }.getOrDefault("?")
+            },
+            forwarded = forwarded, group = groupId, groupName = group.name,
+        )
+        val msgId = UUID.randomUUID()
+        val now = System.currentTimeMillis()
+        messageDao.insert(
+            MessageEntity(
+                msgId = msgId.toString(), conversationId = GROUP_PREFIX + groupId,
+                senderId = myDeviceId.toString(), destId = groupId,
+                body = trimmed, timestampMs = now, status = MessageStatus.PENDING,
+                isMine = true, ttl = Packet.DEFAULT_TTL.toInt(), hops = 0,
+                replyToId = replyTo?.msgId, replyToBody = replyTo?.body?.take(120),
+                replyToSender = replyTo?.let { if (it.isMine) "You" else "?" },
+                forwarded = forwarded,
+            ),
+        )
+        val sent = sendToGroupMembers(groupId, env, trackMsgId = msgId)
+        if (sent > 0) {
+            messageDao.setStatus(msgId.toString(), MessageStatus.SENT)
+            Result.success(Unit)
+        } else {
+            _events.tryEmit("no members reachable — will retry")
+            Result.success(Unit)
+        }
+        return Result.success(Unit)
+    }
+
+    /**
+     * Fan-out: encrypts the envelope separately for every member (except me)
+     * and sends. Returns how many members accepted the packet.
+     */
+    private suspend fun sendToGroupMembers(
+        groupId: String,
+        env: MessageEnvelope,
+        trackMsgId: UUID,
+        trackAck: Boolean = true,
+    ): Int {
+        val members = groupDao.membersOnce(groupId).filter { it.deviceId != myDeviceId.toString() }
+        var sent = 0
+        var firstPacket: ByteArray? = null
+        var firstDest: UUID? = null
+        val now = System.currentTimeMillis()
+        for (m in members) {
+            val destId = runCatching { UUID.fromString(m.deviceId) }.getOrNull() ?: continue
+            val keys = sessionKeysFor(destId, m.publicKeyB64) ?: continue
+            val sealed = crypto.encrypt(keys, env.encode()) ?: continue
+            val packet = Packet.encode(
+                type = PacketType.MSG, ttl = Packet.DEFAULT_TTL,
+                messageId = trackMsgId, senderId = myDeviceId, destId = destId,
+                timestampMs = now, payload = sealed,
+            )
+            if (sendRouted(destId, null, packet)) {
+                sent++
+                if (firstPacket == null) {
+                    firstPacket = packet
+                    firstDest = destId
+                }
+            }
+        }
+        // Track one representative for ACK/retry; first ACK marks DELIVERED.
+        if (trackAck && firstPacket != null && firstDest != null) {
+            ackTracker.track(trackMsgId, firstDest, firstPacket, now)
+        }
+        return sent
     }
 
     // ------------------------------------------------------------ receiving
@@ -171,31 +426,18 @@ class ChatRepository(
                 if (relayEngine.haveSeen(p.messageId)) return // duplicate
                 relayEngine.markSeen(p.messageId)
                 val contact = contactDao.get(p.senderId.toString()) ?: return
-                val peerKey = runCatching {
-                    Base64.decode(contact.publicKeyB64, Base64.NO_WRAP)
-                }.getOrNull() ?: return
-                val keys = crypto.sessionKeys(p.senderId, peerKey) ?: return
+                val keys = sessionKeysFor(p.senderId, contact.publicKeyB64) ?: return
                 val plain = crypto.decrypt(keys, p.payload) ?: return // auth failed: drop
-                val body = runCatching { String(plain, Charsets.UTF_8) }.getOrNull() ?: return
-                messageDao.insert(
-                    MessageEntity(
-                        msgId = p.messageId.toString(),
-                        conversationId = p.senderId.toString(),
-                        senderId = p.senderId.toString(),
-                        destId = myDeviceId.toString(),
-                        body = body,
-                        timestampMs = p.timestampMs,
-                        status = MessageStatus.RECEIVED,
-                        isMine = false,
-                        ttl = p.ttl.toInt(),
-                        hops = 0,
-                        isRead = false,
-                    ),
-                )
+                val env = MessageEnvelope.decode(plain)
+                when (env.kind) {
+                    "chat" -> handleChatMessage(p, env, contact.displayName)
+                    "react" -> handleReaction(p, env)
+                    "read" -> handleReadReceipt(p, env)
+                    "gsync" -> handleGroupSync(p, env, contact.displayName)
+                }
                 sendAck(p.senderId, p.messageId)
             }
             PacketType.ACK -> {
-                // ACKs carry the original message id in the header.
                 val destId = ackTracker.onAck(p.messageId)
                 if (destId != null) {
                     messageDao.setStatus(p.messageId.toString(), MessageStatus.DELIVERED)
@@ -205,6 +447,96 @@ class ChatRepository(
             }
             else -> Unit // HELLO/BYE/ROUTE never addressed to us here
         }
+    }
+
+    private suspend fun handleChatMessage(p: DecodedPacket, env: MessageEnvelope, senderName: String) {
+        val groupId = env.group
+        if (groupId != null) {
+            // Ensure the group exists locally.
+            if (groupDao.getGroup(groupId) == null) {
+                groupDao.upsertGroup(
+                    GroupEntity(groupId, env.groupName ?: "Group", p.senderId.toString(), p.timestampMs),
+                )
+                val contact = contactDao.get(p.senderId.toString())
+                groupDao.upsertMember(
+                    GroupMemberEntity(
+                        groupId, p.senderId.toString(), senderName,
+                        contact?.publicKeyB64 ?: "", isAdmin = true,
+                    ),
+                )
+            }
+            messageDao.insert(
+                MessageEntity(
+                    msgId = p.messageId.toString(), conversationId = GROUP_PREFIX + groupId,
+                    senderId = p.senderId.toString(), destId = groupId,
+                    body = env.text, timestampMs = p.timestampMs,
+                    status = MessageStatus.RECEIVED, isMine = false,
+                    ttl = p.ttl.toInt(), hops = 0, isRead = false,
+                    replyToId = env.replyTo, replyToBody = env.replyBody,
+                    replyToSender = env.replySender, forwarded = env.forwarded,
+                ),
+            )
+            _notifications.tryEmit(
+                NotifyEvent(env.groupName ?: "Group", "$senderName: ${env.text.take(80)}", GROUP_PREFIX + groupId),
+            )
+        } else {
+            messageDao.insert(
+                MessageEntity(
+                    msgId = p.messageId.toString(), conversationId = p.senderId.toString(),
+                    senderId = p.senderId.toString(), destId = myDeviceId.toString(),
+                    body = env.text, timestampMs = p.timestampMs,
+                    status = MessageStatus.RECEIVED, isMine = false,
+                    ttl = p.ttl.toInt(), hops = 0, isRead = false,
+                    replyToId = env.replyTo, replyToBody = env.replyBody,
+                    replyToSender = env.replySender, forwarded = env.forwarded,
+                ),
+            )
+            _notifications.tryEmit(
+                NotifyEvent(senderName, env.text.take(120), p.senderId.toString()),
+            )
+        }
+    }
+
+    private suspend fun handleReaction(p: DecodedPacket, env: MessageEnvelope) {
+        val target = env.target ?: return
+        val emoji = env.emoji ?: return
+        applyReactionLocal(target, emoji, p.senderId.toString(), env.add)
+    }
+
+    private suspend fun handleReadReceipt(p: DecodedPacket, env: MessageEnvelope) {
+        val target = env.target ?: return
+        // Only my sent messages can be marked read by someone else's receipt.
+        val msg = messageDao.getById(target) ?: return
+        if (!msg.isMine || msg.senderId != myDeviceId.toString()) return
+        messageDao.markMyMessageRead(target)
+    }
+
+    private suspend fun handleGroupSync(p: DecodedPacket, env: MessageEnvelope, senderName: String) {
+        val groupId = env.group ?: return
+        val packed = env.members ?: return
+        val specs: List<GroupMemberSpec> = unpackMembers(packed)
+        if (specs.isEmpty()) return
+        val existing = groupDao.getGroup(groupId)
+        groupDao.upsertGroup(
+            GroupEntity(
+                groupId, env.groupName ?: existing?.name ?: "Group",
+                p.senderId.toString(), p.timestampMs,
+                iAmAdmin = existing?.iAmAdmin == true,
+            ),
+        )
+        // Replace member list with the admin's authoritative copy.
+        val current = groupDao.membersOnce(groupId)
+        for (c in current) groupDao.removeMember(groupId, c.deviceId)
+        groupDao.upsertMembers(
+            specs.map {
+                GroupMemberEntity(
+                    groupId, it.deviceId,
+                    it.displayName.ifBlank { senderName },
+                    it.publicKeyB64, it.isAdmin,
+                )
+            },
+        )
+        _events.tryEmit("group updated: ${env.groupName}")
     }
 
     private suspend fun handleBroadcast(p: DecodedPacket) {
@@ -251,8 +583,6 @@ class ChatRepository(
             }
         }
         if (forwarded == 0) {
-            // Nobody to hand it to right now: store-and-forward (only if we
-            // actually store it — this row IS the store).
             enqueueRelay(p.messageId, p.destId, bytes, System.currentTimeMillis(), preferred)
             _events.tryEmit("stored for forwarding")
         }
@@ -266,10 +596,6 @@ class ChatRepository(
                 RelayEngine.Route(UUID.fromString(it.nextHopId), it.hops)
         }
 
-    /**
-     * Best-effort routed send for our own packets (MSG, ACK).
-     * Returns true if at least one peer accepted the packet.
-     */
     private suspend fun sendRouted(destId: UUID, fromPeer: UUID?, packet: ByteArray): Boolean {
         val decoded = Packet.decode(packet) ?: return false
         val direct = transport.connectedDeviceIds()
@@ -297,7 +623,7 @@ class ChatRepository(
         val ack = Packet.encode(
             type = PacketType.ACK,
             ttl = Packet.DEFAULT_TTL,
-            messageId = msgId, // original message id: the sender matches on it
+            messageId = msgId,
             senderId = myDeviceId,
             destId = to,
             timestampMs = System.currentTimeMillis(),
@@ -326,7 +652,6 @@ class ChatRepository(
         )
     }
 
-    /** Store-and-forward drain: a queued packet leaves only via a live peer. */
     private suspend fun drainQueue() {
         val now = System.currentTimeMillis()
         relayQueueDao.deleteExpired(now)
@@ -385,7 +710,7 @@ class ChatRepository(
             val payload = peers.buildRouteAdvert()
             val packet = Packet.encode(
                 type = PacketType.ROUTE,
-                ttl = 1, // direct neighbours only; each node re-advertises
+                ttl = 1,
                 messageId = UUID.randomUUID(),
                 senderId = myDeviceId,
                 destId = Packet.BROADCAST_ID,

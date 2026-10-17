@@ -5,4 +5,6 @@
     <string name="service_channel_desc">Keeps Bluetooth messaging available while the app is in the background</string>
     <string name="service_notification_title">OfflineMessenger is listening</string>
     <string name="service_notification_text">Bluetooth radio on — nearby peers can reach you</string>
+    <string name="msg_channel_name">New messages</string>
+    <string name="msg_channel_desc">Notifications when a message arrives</string>
 </resources>

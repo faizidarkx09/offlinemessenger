@@ -28,6 +28,7 @@ class ServiceLocator(private val appContext: Context) {
 
     val database: AppDatabase by lazy {
         Room.databaseBuilder(appContext, AppDatabase::class.java, "offline-messenger.db")
+            .addMigrations(AppDatabase.MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -50,6 +51,8 @@ class ServiceLocator(private val appContext: Context) {
             messageDao = database.messageDao(),
             contactDao = database.contactDao(),
             relayQueueDao = database.relayQueueDao(),
+            groupDao = database.groupDao(),
+            conversationDao = database.conversationDao(),
             crypto = cryptoManager,
             store = secureStore,
             transport = bleTransport,

@@ -26,3 +26,4 @@ val BubbleIn = Color(0xFF262B2A)
 // Status
 val AmberWarn = Color(0xFFE0A63C)
 val RedError = Color(0xFFE06C5B)
+val ReadBlue = Color(0xFF53BDEB)

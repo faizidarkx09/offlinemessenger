@@ -25,6 +25,7 @@ import androidx.navigation.navArgument
 import com.offlinemessenger.ui.screens.ChatDetailScreen
 import com.offlinemessenger.ui.screens.ChatsScreen
 import com.offlinemessenger.ui.screens.ContactsScreen
+import com.offlinemessenger.ui.screens.GroupCreateScreen
 import com.offlinemessenger.ui.screens.NearbyScreen
 import com.offlinemessenger.ui.screens.SettingsScreen
 import com.offlinemessenger.ui.screens.TopologyScreen
@@ -80,7 +81,19 @@ fun AppNav() {
             modifier = Modifier.padding(padding),
         ) {
             composable(Destination.Chats.route) {
-                ChatsScreen(onOpenChat = { id -> nav.navigate("chat/$id") })
+                ChatsScreen(
+                    onOpenChat = { id -> nav.navigate("chat/$id") },
+                    onCreateGroup = { nav.navigate("group_create") },
+                )
+            }
+            composable("group_create") {
+                GroupCreateScreen(
+                    onBack = { nav.popBackStack() },
+                    onGroupCreated = { id ->
+                        nav.popBackStack()
+                        nav.navigate("chat/$id")
+                    },
+                )
             }
             composable(
                 route = "chat/{conversationId}",

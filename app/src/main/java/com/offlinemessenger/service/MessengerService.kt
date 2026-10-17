@@ -3,14 +3,25 @@ package com.offlinemessenger.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import com.offlinemessenger.MainActivity
 import com.offlinemessenger.OfflineMessengerApp
 import com.offlinemessenger.R
+import com.offlinemessenger.repository.NotifyEvent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that keeps the BLE radio alive while the app is in the
@@ -29,16 +40,22 @@ class MessengerService : Service() {
     companion object {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "om_radio"
+        const val MSG_CHANNEL_ID = "om_messages"
         const val ACTION_STOP = "com.offlinemessenger.STOP_RADIO"
     }
 
     private val locator get() = (application as OfflineMessengerApp).locator
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        createMessageChannel()
         // Wire packet handling, ACK/timeout loops, route adverts.
         locator.chatRepository.start()
+        scope.launch {
+            locator.chatRepository.notifications.collect { postMessageNotification(it) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -66,8 +83,43 @@ class MessengerService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         locator.bleTransport.stop()
         super.onDestroy()
+    }
+
+    private fun createMessageChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            MSG_CHANNEL_ID,
+            getString(R.string.msg_channel_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply { description = getString(R.string.msg_channel_desc) }
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun postMessageNotification(event: NotifyEvent) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("open_chat", event.conversationId)
+        }
+        val pending = PendingIntent.getActivity(
+            this, event.conversationId.hashCode(), openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, MSG_CHANNEL_ID)
+            .setContentTitle(event.title)
+            .setContentText(event.body)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(this)
+            .notify(event.conversationId.hashCode(), notification)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
