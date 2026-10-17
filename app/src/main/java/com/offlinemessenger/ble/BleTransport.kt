@@ -144,16 +144,20 @@ class BleTransport(
     private fun adapter(): BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
-    /** Starts the radio. Returns false when Bluetooth is unavailable/disabled. */
+    /**
+     * Starts the radio. Returns false when Bluetooth is unavailable/disabled —
+     * but the adapter-state receiver is ALWAYS registered first, so the radio
+     * auto-starts as soon as the user enables Bluetooth.
+     */
     fun start(): Boolean {
         if (started) return _bluetoothOn.value
+        registerBtReceiver()
         val a = adapter()
         if (a == null || !a.isEnabled) {
             _bluetoothOn.value = false
             return false
         }
         _bluetoothOn.value = true
-        registerBtReceiver()
         advertiser.start(myDeviceId)
         scanner.start()
         if (!server.start()) {

@@ -1,7 +1,6 @@
 package com.offlinemessenger.ble
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
@@ -47,10 +46,13 @@ class BleAdvertiser(private val context: Context) {
 
     fun start(deviceId: UUID) {
         val adv = advertiser ?: bluetoothAdvertiser()
-        if (adv == null || !isMultipleAdvertisementSupported()) {
+        if (adv == null) {
             _state.value = AdvertiseState.UNSUPPORTED
             return
         }
+        // NOTE: no isMultipleAdvertisementSupported() gate — it is overly
+        // conservative on some phones. If the controller truly can't advertise,
+        // the stack reports it via onStartFailure and we surface FAILED.
         advertiser = adv
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
@@ -81,11 +83,5 @@ class BleAdvertiser(private val context: Context) {
         } catch (_: Exception) {
         }
         _state.value = AdvertiseState.IDLE
-    }
-
-    private fun isMultipleAdvertisementSupported(): Boolean {
-        val adapter: BluetoothAdapter? =
-            (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        return adapter?.isMultipleAdvertisementSupported == true
     }
 }
