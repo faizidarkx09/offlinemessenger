@@ -33,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -43,6 +44,9 @@ data class NotifyEvent(
     val body: String,
     val conversationId: String,
 )
+
+/** An incoming chat-request handshake from a nearby peer. */
+data class ConnRequest(val peerId: String, val timestampMs: Long)
 
 /**
  * Messaging orchestration: send/receive, ACKs, relaying, store-and-forward,
@@ -83,6 +87,14 @@ class ChatRepository(
 
     private val _notifications = MutableSharedFlow<NotifyEvent>(extraBufferCapacity = 32)
     val notifications: SharedFlow<NotifyEvent> = _notifications
+
+    /** Incoming "X wants to chat" requests (receiver side). */
+    private val _incomingRequests = MutableSharedFlow<ConnRequest>(extraBufferCapacity = 16)
+    val incomingRequests: SharedFlow<ConnRequest> = _incomingRequests.asSharedFlow()
+
+    /** Peer ids that accepted OUR request (requester side) — open the chat. */
+    private val _requestAccepted = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val requestAccepted: SharedFlow<String> = _requestAccepted.asSharedFlow()
 
     private val started = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -240,6 +252,37 @@ class ChatRepository(
     }
 
     /** Sends an encrypted control message (react/read/gsync) to one peer. */
+    // ------------------------------------------------- connection request handshake
+
+    /** "I want to chat" — sent after tapping Connect in Nearby. */
+    suspend fun sendConnectionRequest(peerId: UUID): Boolean =
+        sendControlMessage(peerId, MessageEnvelope(kind = "connreq"))
+
+    /** Accept an incoming request — the chat opens on both sides. */
+    suspend fun acceptConnectionRequest(peerId: UUID): Boolean =
+        sendControlMessage(peerId, MessageEnvelope(kind = "connacc"))
+
+    /** Decline an incoming request (best-effort, no retry). */
+    suspend fun declineConnectionRequest(peerId: UUID) {
+        runCatching { sendControlMessage(peerId, MessageEnvelope(kind = "conndec")) }
+    }
+
+    private suspend fun handleConnRequest(p: DecodedPacket) {
+        _incomingRequests.emit(ConnRequest(p.senderId.toString(), System.currentTimeMillis()))
+    }
+
+    private suspend fun handleConnAccepted(p: DecodedPacket, contact: ContactEntity) {
+        val peerId = p.senderId.toString()
+        _requestAccepted.emit(peerId)
+        _notifications.emit(
+            NotifyEvent(
+                title = "Request accepted",
+                body = "${contact.displayName} accepted your chat request — tap to open.",
+                conversationId = peerId,
+            ),
+        )
+    }
+
     private suspend fun sendControlMessage(destId: UUID, env: MessageEnvelope): Boolean {
         val contact = contactDao.get(destId.toString()) ?: return false
         val keys = sessionKeysFor(destId, contact.publicKeyB64) ?: return false
@@ -434,6 +477,9 @@ class ChatRepository(
                     "react" -> handleReaction(p, env)
                     "read" -> handleReadReceipt(p, env)
                     "gsync" -> handleGroupSync(p, env, contact.displayName)
+                    "connreq" -> handleConnRequest(p)
+                    "connacc" -> handleConnAccepted(p, contact)
+                    "conndec" -> Unit // declined: stay silent
                 }
                 sendAck(p.senderId, p.messageId)
             }

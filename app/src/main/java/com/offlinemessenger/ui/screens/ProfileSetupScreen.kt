@@ -62,13 +62,22 @@ fun ProfileSetupScreen(onDone: () -> Unit) {
     val store = remember(locator) { locator.secureStore }
     var name by remember { mutableStateOf(store.displayName().takeIf { !it.startsWith("User-") } ?: "") }
     var photoBytes by remember { mutableStateOf<ByteArray?>(store.profilePhoto()) }
+    var cropUri by remember { mutableStateOf<Uri?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        photoBytes = runCatching { thumbnailBytes(context, uri) }.getOrNull()
-        if (photoBytes == null) error = "Could not read that image"
+        if (uri != null) cropUri = uri
+    }
+
+    // Crop editor overlay.
+    cropUri?.let { uri ->
+        PhotoCropScreen(uri = uri, onDone = { bytes ->
+            cropUri = null
+            if (bytes != null) photoBytes = bytes
+            else error = "Could not read that image"
+        })
+        return
     }
 
     error?.let {

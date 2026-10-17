@@ -65,11 +65,18 @@ fun SettingsScreen() {
     val bluetoothOn by vm.bluetoothOn.collectAsState(initial = true)
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
+    var cropUri by remember { mutableStateOf<Uri?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            val bytes = runCatching { thumbnailBytes(context, uri) }.getOrNull()
+        if (uri != null) cropUri = uri
+    }
+
+    // Crop editor overlay.
+    cropUri?.let { uri ->
+        PhotoCropScreen(uri = uri, onDone = { bytes ->
+            cropUri = null
             if (bytes != null) vm.savePhoto(bytes)
-        }
+        })
+        return
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->

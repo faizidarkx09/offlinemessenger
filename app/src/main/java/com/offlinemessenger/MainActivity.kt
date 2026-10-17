@@ -24,6 +24,14 @@ class MainActivity : ComponentActivity() {
 
     private var permissionsGranted by mutableStateOf(false)
     private var profileDone by mutableStateOf(false)
+    /** Conversation id to open (from a notification tap / request accept). */
+    private var openChatId by mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("open_chat")?.let { openChatId = it }
+    }
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -60,6 +68,7 @@ class MainActivity : ComponentActivity() {
         }
         permissionsGranted = BlePermissions.granted(this)
         profileDone = (application as OfflineMessengerApp).locator.secureStore.isProfileSetupDone()
+        openChatId = intent.getStringExtra("open_chat")
         if (permissionsGranted) {
             startRadioService()
             ensureBluetoothOn()
@@ -70,7 +79,10 @@ class MainActivity : ComponentActivity() {
             OfflineMessengerTheme {
                 when {
                     !profileDone -> ProfileSetupScreen(onDone = { profileDone = true })
-                    permissionsGranted -> AppNav()
+                    permissionsGranted -> AppNav(
+                        startChatId = openChatId,
+                        onChatOpened = { openChatId = null },
+                    )
                     else -> PermissionsScreen(
                         missing = BlePermissions.missing(this),
                         onGrant = { permissionLauncher.launch(BlePermissions.required()) },

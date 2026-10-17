@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 /**
@@ -41,6 +42,7 @@ class MessengerService : Service() {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "om_radio"
         const val MSG_CHANNEL_ID = "om_messages"
+        const val REQ_CHANNEL_ID = "om_requests"
         const val ACTION_STOP = "com.offlinemessenger.STOP_RADIO"
     }
 
@@ -51,10 +53,14 @@ class MessengerService : Service() {
         super.onCreate()
         createChannel()
         createMessageChannel()
+        createRequestChannel()
         // Wire packet handling, ACK/timeout loops, route adverts.
         locator.chatRepository.start()
         scope.launch {
             locator.chatRepository.notifications.collect { postMessageNotification(it) }
+        }
+        scope.launch {
+            locator.chatRepository.incomingRequests.collect { postRequestNotification(it.peerId) }
         }
     }
 
@@ -96,6 +102,85 @@ class MessengerService : Service() {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply { description = getString(R.string.msg_channel_desc) }
         manager.createNotificationChannel(channel)
+    }
+
+    private fun createRequestChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            REQ_CHANNEL_ID,
+            "Chat requests",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply { description = "Someone nearby wants to chat with you" }
+        manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * "X wants to chat" notification with Accept / Decline buttons.
+     * Accept sends the handshake reply and opens the chat immediately.
+     */
+    private fun postRequestNotification(peerId: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        scope.launch(Dispatchers.IO) {
+            val contact = locator.peerRepository.contacts.firstOrNull()
+                ?.firstOrNull { it.deviceId == peerId }
+            val name = contact?.displayName ?: "Someone nearby"
+            val largeIcon = contact?.photoB64?.takeIf { it.isNotBlank() }?.let { b64 ->
+                runCatching {
+                    val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }.getOrNull()
+            }
+
+            val acceptIntent = Intent(this@MessengerService, ChatActionReceiver::class.java).apply {
+                action = ChatActionReceiver.ACTION_ACCEPT
+                putExtra(ChatActionReceiver.EXTRA_PEER_ID, peerId)
+            }
+            val declineIntent = Intent(this@MessengerService, ChatActionReceiver::class.java).apply {
+                action = ChatActionReceiver.ACTION_DECLINE
+                putExtra(ChatActionReceiver.EXTRA_PEER_ID, peerId)
+            }
+            val acceptPending = PendingIntent.getBroadcast(
+                this@MessengerService, peerId.hashCode(), acceptIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val declinePending = PendingIntent.getBroadcast(
+                this@MessengerService, peerId.hashCode() + 1, declineIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val openIntent = Intent(this@MessengerService, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val openPending = PendingIntent.getActivity(
+                this@MessengerService, peerId.hashCode() + 2, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+
+            val notification = NotificationCompat.Builder(this@MessengerService, REQ_CHANNEL_ID)
+                .setContentTitle("Chat request")
+                .setContentText("$name wants to chat with you")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentIntent(openPending)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .addAction(
+                    NotificationCompat.Action.Builder(
+                        R.drawable.ic_launcher_foreground, "Accept", acceptPending,
+                    ).build(),
+                )
+                .addAction(
+                    NotificationCompat.Action.Builder(
+                        R.drawable.ic_launcher_foreground, "Decline", declinePending,
+                    ).build(),
+                )
+                .apply { largeIcon?.let { setLargeIcon(it) } }
+                .build()
+            NotificationManagerCompat.from(this@MessengerService)
+                .notify(ChatActionReceiver.TAG_REQUEST, peerId.hashCode(), notification)
+        }
     }
 
     private fun postMessageNotification(event: NotifyEvent) {

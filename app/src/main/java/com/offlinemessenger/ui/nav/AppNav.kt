@@ -17,9 +17,17 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -51,11 +59,35 @@ private val Tabs = listOf(
 )
 
 @Composable
-fun AppNav() {
+fun AppNav(
+    startChatId: String? = null,
+    onChatOpened: () -> Unit = {},
+) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showTabs = Tabs.any { it.route == currentRoute }
+    val locator = com.offlinemessenger.ui.rememberLocator()
+    val repo = remember(locator) { locator.chatRepository }
+    val uiScope = remember { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main) }
+
+    // Deep link from a notification tap / request accept.
+    LaunchedEffect(startChatId) {
+        if (startChatId != null) {
+            nav.navigate("chat/$startChatId")
+            onChatOpened()
+        }
+    }
+
+    // Incoming chat request while the app is open: show a dialog.
+    var pendingRequest by remember { mutableStateOf<com.offlinemessenger.repository.ConnRequest?>(null) }
+    val peers = remember(locator) { locator.peerRepository }
+    val contacts by peers.contacts.collectAsState(initial = emptyList())
+    LaunchedEffect(repo) {
+        launch { repo.incomingRequests.collect { pendingRequest = it } }
+        // Our request was accepted: open the chat immediately.
+        launch { repo.requestAccepted.collect { peerId -> nav.navigate("chat/$peerId") } }
+    }
 
     Scaffold(
         bottomBar = {
@@ -125,5 +157,50 @@ fun AppNav() {
             }
             composable(Destination.Settings.route) { SettingsScreen() }
         }
+    }
+
+    // In-app chat-request dialog (foreground case; background is the notification).
+    pendingRequest?.let { req ->
+        val c = contacts.firstOrNull { it.deviceId == req.peerId }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingRequest = null },
+            title = { Text("Chat request") },
+            text = {
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    com.offlinemessenger.ui.components.Avatar(
+                        name = c?.displayName ?: "Nearby peer",
+                        size = 48.dp,
+                        photoB64 = c?.photoB64 ?: "",
+                    )
+                    androidx.compose.foundation.layout.Spacer(
+                        androidx.compose.foundation.layout.Modifier.width(12.dp),
+                    )
+                    Text("${c?.displayName ?: "Someone nearby"} wants to chat with you.")
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    pendingRequest = null
+                    uiScope.launch {
+                        repo.acceptConnectionRequest(
+                            java.util.UUID.fromString(req.peerId),
+                        )
+                        nav.navigate("chat/${req.peerId}")
+                    }
+                }) { Text("Accept") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    pendingRequest = null
+                    uiScope.launch {
+                        repo.declineConnectionRequest(
+                            java.util.UUID.fromString(req.peerId),
+                        )
+                    }
+                }) { Text("Decline") }
+            },
+        )
     }
 }

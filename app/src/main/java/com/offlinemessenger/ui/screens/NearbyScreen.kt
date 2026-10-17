@@ -63,6 +63,9 @@ fun NearbyScreen() {
     val unknown by vm.unknownDevices.collectAsState(initial = emptyList())
     val scanning by vm.scanning.collectAsState(initial = false)
     val bluetoothOn by vm.bluetoothOn.collectAsState(initial = true)
+    val contacts by vm.contacts.collectAsState(initial = emptyList())
+    val requested by vm.requested.collectAsState()
+    val contactById = remember(contacts) { contacts.associateBy { it.deviceId } }
     var connectingId by remember { mutableStateOf<String?>(null) }
     val scope = remember { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main) }
 
@@ -119,18 +122,24 @@ fun NearbyScreen() {
                 items(appPeers, key = { it.address }) { peer ->
                     val idStr = peer.deviceId.toString()
                     val connected = vm.isConnected(idStr)
+                    val contact = contactById[idStr]
+                    // Profile name from HELLO (stable), else the Bluetooth name.
+                    val showName = contact?.displayName ?: peer.name ?: "Peer ${shortId(idStr)}"
                     if (connected && connectingId == idStr) connectingId = null
                     PeerCard(
                         peer = peer,
+                        showName = showName,
+                        photoB64 = contact?.photoB64 ?: "",
                         connected = connected,
                         connecting = connectingId == idStr,
+                        requestSent = requested.contains(idStr),
                         onTap = {
-                            if (!connected && connectingId == null) {
+                            if (!connected && connectingId == null && !requested.contains(idStr)) {
                                 connectingId = idStr
                                 vm.connect(peer)
                                 // Clear the spinner after a while; the dot shows real state.
                                 scope.launch {
-                                    delay(12_000)
+                                    delay(30_000)
                                     if (connectingId == idStr) connectingId = null
                                 }
                             }
@@ -177,12 +186,15 @@ fun NearbyScreen() {
     }
 }
 
-/** iOS-style tappable peer card. Tap = connect now. */
+/** iOS-style tappable peer card. Tap = connect + send chat request. */
 @Composable
 private fun PeerCard(
     peer: DiscoveredPeer,
+    showName: String,
+    photoB64: String,
     connected: Boolean,
     connecting: Boolean,
+    requestSent: Boolean,
     onTap: () -> Unit,
 ) {
     Card(
@@ -194,11 +206,11 @@ private fun PeerCard(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(name = peer.name ?: shortId(peer.deviceId.toString()), size = 48.dp)
+            Avatar(name = showName, size = 48.dp, photoB64 = photoB64)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    peer.name ?: "Peer ${shortId(peer.deviceId.toString())}",
+                    showName,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = IOSText,
@@ -211,24 +223,15 @@ private fun PeerCard(
                 )
             }
             when {
-                connected -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            color = IOSGreen.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text(
-                                "Connected",
-                                color = IOSGreen,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
+                connected && requestSent -> {
+                    Pill("Chat requested", IOSBlue)
                 }
-                connecting -> {
-                    CircularProgressIndicator(
+                connected -> {
+                    Pill("Connected", IOSGreen)
+                }
+                connecting || requestSent -> {
+                    if (requestSent) Pill("Request sent ✓", IOSBlue)
+                    else CircularProgressIndicator(
                         modifier = Modifier.size(22.dp),
                         color = IOSBlue,
                         strokeWidth = 2.5.dp,
@@ -252,5 +255,21 @@ private fun PeerCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun Pill(text: String, color: androidx.compose.ui.graphics.Color) {
+    Surface(
+        color = color.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Text(
+            text,
+            color = color,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }

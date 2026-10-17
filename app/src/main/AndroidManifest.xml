@@ -50,5 +50,14 @@
             android:name=".service.MessengerService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <receiver
+            android:name=".service.ChatActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.offlinemessenger.action.CONN_ACCEPT" />
+                <action android:name="com.offlinemessenger.action.CONN_DECLINE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
