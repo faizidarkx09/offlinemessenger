@@ -76,9 +76,8 @@ dependencies {
     // Encrypted local storage (Android Keystore backed)
     implementation(libs.androidx.security.crypto)
 
-    // Reviewed crypto: libsodium via LazySodium-Android
+    // Reviewed crypto: libsodium via LazySodium-Android (JNA comes transitively)
     implementation(libs.lazysodium.android) { artifact { type = "aar" } }
-    implementation(libs.jna.aar) { artifact { type = "aar" } }
 
     // Unit tests
     testImplementation(libs.junit4)
