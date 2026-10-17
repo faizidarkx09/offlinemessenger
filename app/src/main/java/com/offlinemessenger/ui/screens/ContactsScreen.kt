@@ -77,7 +77,7 @@ fun ContactsScreen(onOpenChat: (String) -> Unit) {
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(name = c.displayName)
+                        Avatar(name = c.displayName, photoB64 = c.photoB64)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {

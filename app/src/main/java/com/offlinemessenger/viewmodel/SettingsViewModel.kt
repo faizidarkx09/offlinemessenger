@@ -21,6 +21,16 @@ class SettingsViewModel(
     private val _displayName = MutableStateFlow(store.displayName())
     val displayName: StateFlow<String> = _displayName
 
+    private val _photo = MutableStateFlow(store.profilePhoto())
+    val profilePhoto: StateFlow<ByteArray?> = _photo
+
+    fun savePhoto(jpeg: ByteArray?) {
+        viewModelScope.launch {
+            store.setProfilePhoto(jpeg)
+            _photo.value = jpeg
+        }
+    }
+
     private val _relayOptIn = MutableStateFlow(store.relayOptIn)
     val relayOptIn: StateFlow<Boolean> = _relayOptIn
 

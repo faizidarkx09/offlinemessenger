@@ -25,7 +25,7 @@ import com.offlinemessenger.data.local.entity.RouteEntity
         RouteEntity::class, GroupEntity::class, GroupMemberEntity::class,
         ConversationEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -71,6 +71,13 @@ abstract class AppDatabase : RoomDatabase() {
                         pinned INTEGER NOT NULL,
                         muted INTEGER NOT NULL)""",
                 )
+            }
+        }
+
+        /** v2 -> v3: peer profile photos. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE contacts ADD COLUMN photoB64 TEXT NOT NULL DEFAULT ''")
             }
         }
     }

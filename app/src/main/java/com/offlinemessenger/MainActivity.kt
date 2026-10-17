@@ -17,11 +17,13 @@ import com.offlinemessenger.service.MessengerService
 import com.offlinemessenger.ui.nav.AppNav
 import com.offlinemessenger.ui.screens.CrashReportScreen
 import com.offlinemessenger.ui.screens.PermissionsScreen
+import com.offlinemessenger.ui.screens.ProfileSetupScreen
 import com.offlinemessenger.ui.theme.OfflineMessengerTheme
 
 class MainActivity : ComponentActivity() {
 
     private var permissionsGranted by mutableStateOf(false)
+    private var profileDone by mutableStateOf(false)
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -57,6 +59,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         permissionsGranted = BlePermissions.granted(this)
+        profileDone = (application as OfflineMessengerApp).locator.secureStore.isProfileSetupDone()
         if (permissionsGranted) {
             startRadioService()
             ensureBluetoothOn()
@@ -65,10 +68,10 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             OfflineMessengerTheme {
-                if (permissionsGranted) {
-                    AppNav()
-                } else {
-                    PermissionsScreen(
+                when {
+                    !profileDone -> ProfileSetupScreen(onDone = { profileDone = true })
+                    permissionsGranted -> AppNav()
+                    else -> PermissionsScreen(
                         missing = BlePermissions.missing(this),
                         onGrant = { permissionLauncher.launch(BlePermissions.required()) },
                     )

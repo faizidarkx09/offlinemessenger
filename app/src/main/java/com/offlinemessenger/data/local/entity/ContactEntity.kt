@@ -16,4 +16,6 @@ data class ContactEntity(
     val fingerprint: String,
     val verified: Boolean = false,
     val lastSeenMs: Long = 0L,
+    /** Base64 JPEG thumbnail of the peer's profile photo (may be empty). */
+    val photoB64: String = "",
 )

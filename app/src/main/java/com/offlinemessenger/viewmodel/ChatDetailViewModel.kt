@@ -34,6 +34,9 @@ class ChatDetailViewModel(
         .map { list -> list.firstOrNull { it.deviceId == conversationId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** All contacts — for avatar photos keyed by device id. */
+    val allContacts: Flow<List<ContactEntity>> = peers.contacts
+
     val group: StateFlow<GroupEntity?> = (
         if (groupId != null) repo.group(groupId)
         else kotlinx.coroutines.flow.flowOf(null)

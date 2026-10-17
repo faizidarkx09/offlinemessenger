@@ -299,7 +299,12 @@ class BleTransport(
         senderId = myDeviceId,
         destId = Packet.BROADCAST_ID,
         timestampMs = System.currentTimeMillis(),
-        payload = HelloPayload.encode(myDeviceId, crypto.publicKey, store.displayName()),
+        payload = HelloPayload.encode(
+            myDeviceId,
+            crypto.publicKey,
+            store.displayName(),
+            store.profilePhoto() ?: ByteArray(0),
+        ),
     )
 
     private fun sendByeToAll() {

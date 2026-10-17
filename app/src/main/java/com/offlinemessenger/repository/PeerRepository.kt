@@ -57,6 +57,11 @@ class PeerRepository(
         val id = hello.deviceId.toString()
         val existing = contactDao.get(id)
         val fingerprint = crypto.fingerprintOf(hello.publicKey)
+        val photoB64 = if (hello.photo.isNotEmpty()) {
+            Base64.encodeToString(hello.photo, Base64.NO_WRAP)
+        } else {
+            existing?.photoB64 ?: ""
+        }
         if (existing == null) {
             contactDao.upsert(
                 ContactEntity(
@@ -66,6 +71,7 @@ class PeerRepository(
                     fingerprint = fingerprint,
                     verified = false,
                     lastSeenMs = System.currentTimeMillis(),
+                    photoB64 = photoB64,
                 ),
             )
         } else {
@@ -79,6 +85,7 @@ class PeerRepository(
                     fingerprint = fingerprint,
                     verified = verified,
                     lastSeenMs = System.currentTimeMillis(),
+                    photoB64 = photoB64,
                 ),
             )
         }

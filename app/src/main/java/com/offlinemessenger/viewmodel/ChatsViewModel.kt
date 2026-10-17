@@ -25,6 +25,7 @@ data class ChatRow(
     val pinned: Boolean,
     val isGroup: Boolean,
     val unread: Int,
+    val photoB64: String = "",
 )
 
 class ChatsViewModel(locator: ServiceLocator) : ViewModel() {
@@ -66,8 +67,10 @@ class ChatsViewModel(locator: ServiceLocator) : ViewModel() {
                     pinned = pinById[m.conversationId] == true,
                     isGroup = isGroup,
                     unread = 0, // filled per-row by the screen via unreadCount()
+                    photoB64 = c?.photoB64 ?: "",
                 )
-            }.sortedWith(compareByDescending<ChatRow> { it.pinned }.thenByDescending { it.timestampMs })
+            }.distinctBy { it.conversationId } // defensive: duplicate keys crash LazyColumn
+                .sortedWith(compareByDescending<ChatRow> { it.pinned }.thenByDescending { it.timestampMs })
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun unreadCount(conversationId: String): Flow<Int> = repo.unreadCount(conversationId)

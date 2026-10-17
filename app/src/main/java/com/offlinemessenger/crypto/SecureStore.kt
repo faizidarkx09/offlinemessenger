@@ -50,6 +50,26 @@ class SecureStore(context: Context) : IdentityStore {
         prefs.edit().putString(KEY_DISPLAY_NAME, name.take(40)).apply()
     }
 
+    /** True once the user completed the first-launch profile setup. */
+    fun isProfileSetupDone(): Boolean = prefs.getBoolean(KEY_PROFILE_DONE, false)
+
+    fun setProfileSetupDone() {
+        prefs.edit().putBoolean(KEY_PROFILE_DONE, true).apply()
+    }
+
+    /** Raw JPEG bytes of the user's profile photo (thumbnail), or null. */
+    fun profilePhoto(): ByteArray? {
+        val b64 = prefs.getString(KEY_PHOTO, null) ?: return null
+        return runCatching { Base64.decode(b64, Base64.NO_WRAP) }.getOrNull()
+    }
+
+    fun setProfilePhoto(jpeg: ByteArray?) {
+        val e = prefs.edit()
+        if (jpeg == null) e.remove(KEY_PHOTO)
+        else e.putString(KEY_PHOTO, Base64.encodeToString(jpeg, Base64.NO_WRAP))
+        e.apply()
+    }
+
     private fun defaultName(): String {
         val id = deviceId().toString().take(8).uppercase()
         return "User-$id"
@@ -79,5 +99,7 @@ class SecureStore(context: Context) : IdentityStore {
         private const val KEY_PUB = "kx_public_key"
         private const val KEY_SEC = "kx_secret_key"
         private const val KEY_RELAY_OPT_IN = "relay_opt_in"
+        private const val KEY_PROFILE_DONE = "profile_done"
+        private const val KEY_PHOTO = "profile_photo"
     }
 }

@@ -1,5 +1,8 @@
 package com.offlinemessenger.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.offlinemessenger.ui.VmFactory
+import com.offlinemessenger.ui.components.Avatar
 import com.offlinemessenger.ui.rememberLocator
 import com.offlinemessenger.ui.shortId
 import com.offlinemessenger.ui.theme.AmberWarn
@@ -61,6 +65,12 @@ fun SettingsScreen() {
     val bluetoothOn by vm.bluetoothOn.collectAsState(initial = true)
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            val bytes = runCatching { thumbnailBytes(context, uri) }.getOrNull()
+            if (bytes != null) vm.savePhoto(bytes)
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
         Column(
@@ -78,9 +88,21 @@ fun SettingsScreen() {
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val photoBytes by vm.profilePhoto.collectAsState()
+                    val photoB64 = remember(photoBytes) {
+                        photoBytes?.let {
+                            android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)
+                        } ?: ""
+                    }
+                    Avatar(name = displayName, size = 56.dp, photoB64 = photoB64)
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Display name", style = MaterialTheme.typography.bodyLarge)
                         Text(displayName, style = MaterialTheme.typography.bodyMedium, color = InkMid)
+                        TextButton(
+                            onClick = { photoPicker.launch("image/*") },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) { Text("Change photo") }
                     }
                     IconButton(onClick = { editingName = true }) {
                         Icon(Icons.Filled.Edit, "edit name")

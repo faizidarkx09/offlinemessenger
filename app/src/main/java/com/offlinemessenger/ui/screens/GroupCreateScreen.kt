@@ -116,7 +116,7 @@ fun GroupCreateScreen(
                     ) {
                         Checkbox(checked = checked, onCheckedChange = null)
                         Spacer(Modifier.width(12.dp))
-                        Avatar(name = c.displayName, size = 40.dp)
+                        Avatar(name = c.displayName, size = 40.dp, photoB64 = c.photoB64)
                         Spacer(Modifier.width(12.dp))
                         Text(c.displayName, style = MaterialTheme.typography.titleMedium)
                     }

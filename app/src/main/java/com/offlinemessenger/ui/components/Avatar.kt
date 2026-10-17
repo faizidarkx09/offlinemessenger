@@ -1,10 +1,12 @@
 package com.offlinemessenger.ui.components
 
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -12,20 +14,45 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.offlinemessenger.ui.theme.Charcoal700
 import kotlin.math.abs
 
-/** Deterministic pastel-ish avatar from a name, no images needed offline. */
+/**
+ * Profile avatar: shows the peer's photo when available, otherwise a
+ * deterministic colored initial (stable per name — no flicker).
+ */
 @Composable
-fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 48.dp) {
+fun Avatar(
+    name: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
+    photoB64: String = "",
+) {
+    val bitmap = remember(photoB64) {
+        if (photoB64.isBlank()) null
+        else runCatching {
+            val bytes = Base64.decode(photoB64, Base64.NO_WRAP)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = name,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.size(size).clip(CircleShape),
+        )
+        return
+    }
     val color = remember(name) {
         val palette = listOf(
-            Color(0xFF2E7D5B), Color(0xFF3A6EA5), Color(0xFF7A5FBF),
-            Color(0xFFB25B3E), Color(0xFF4E9B8F), Color(0xFF8F6BB3),
+            Color(0xFF0A84FF), Color(0xFF30D158), Color(0xFFBF5AF2),
+            Color(0xFFFF9F0A), Color(0xFF64D2FF), Color(0xFFFF6482),
         )
         palette[abs(name.hashCode()) % palette.size]
     }
@@ -38,7 +65,7 @@ fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 48.dp) {
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(color.copy(alpha = 0.28f)),
+            .background(color.copy(alpha = 0.25f)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
