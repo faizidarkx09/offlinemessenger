@@ -4,7 +4,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Contacts
@@ -166,17 +169,13 @@ fun AppNav(
             onDismissRequest = { pendingRequest = null },
             title = { Text("Chat request") },
             text = {
-                androidx.compose.foundation.layout.Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     com.offlinemessenger.ui.components.Avatar(
                         name = c?.displayName ?: "Nearby peer",
                         size = 48.dp,
                         photoB64 = c?.photoB64 ?: "",
                     )
-                    androidx.compose.foundation.layout.Spacer(
-                        androidx.compose.ui.Modifier.width(12.dp),
-                    )
+                    Spacer(Modifier.width(12.dp))
                     Text("${c?.displayName ?: "Someone nearby"} wants to chat with you.")
                 }
             },
