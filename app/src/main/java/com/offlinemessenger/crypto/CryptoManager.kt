@@ -140,11 +140,13 @@ class CryptoManager(private val store: IdentityStore) {
     }
 
     /** Decrypts output of [encrypt]. Returns null on authentication failure. */
-    fun decrypt(keys: SessionKeys, sealed: ByteArray): ByteArray? = try {
-        if (sealed.size < SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES) return null
-        secretBoxOpen(keys.rx, sealed)
-    } catch (_: Exception) {
-        null
+    fun decrypt(keys: SessionKeys, sealed: ByteArray): ByteArray? {
+        return try {
+            if (sealed.size < SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES) return null
+            secretBoxOpen(keys.rx, sealed)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -173,24 +175,28 @@ class CryptoManager(private val store: IdentityStore) {
 
     internal fun secretBoxOpen(key: ByteArray, sealed: ByteArray): ByteArray? {
         require(key.size == SESSION_KEY_BYTES) { "bad session key size" }
-        val nonce = sealed.copyOfRange(0, SECRETBOX_NONCE_BYTES)
-        val mac = sealed.copyOfRange(SECRETBOX_NONCE_BYTES, SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES)
-        val cipher = sealed.copyOfRange(SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES, sealed.size)
-        val engine = XSalsa20Engine()
-        engine.init(false, ParametersWithIV(KeyParameter(key), nonce))
-        val polyKey = ByteArray(32)
-        engine.processBytes(ByteArray(32), 0, 32, polyKey, 0)
-        val expected = ByteArray(SECRETBOX_MAC_BYTES)
-        Poly1305().apply {
-            init(KeyParameter(polyKey))
-            update(cipher, 0, cipher.size)
-            doFinal(expected, 0)
+        return try {
+            val nonce = sealed.copyOfRange(0, SECRETBOX_NONCE_BYTES)
+            val mac = sealed.copyOfRange(SECRETBOX_NONCE_BYTES, SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES)
+            val cipher = sealed.copyOfRange(SECRETBOX_NONCE_BYTES + SECRETBOX_MAC_BYTES, sealed.size)
+            val engine = XSalsa20Engine()
+            engine.init(false, ParametersWithIV(KeyParameter(key), nonce))
+            val polyKey = ByteArray(32)
+            engine.processBytes(ByteArray(32), 0, 32, polyKey, 0)
+            val expected = ByteArray(SECRETBOX_MAC_BYTES)
+            Poly1305().apply {
+                init(KeyParameter(polyKey))
+                update(cipher, 0, cipher.size)
+                doFinal(expected, 0)
+            }
+            polyKey.fill(0)
+            if (!MessageDigest.isEqual(mac, expected)) return null
+            val plain = ByteArray(cipher.size)
+            engine.processBytes(cipher, 0, cipher.size, plain, 0)
+            plain
+        } catch (_: Exception) {
+            null
         }
-        polyKey.fill(0)
-        if (!MessageDigest.isEqual(mac, expected)) return null
-        val plain = ByteArray(cipher.size)
-        engine.processBytes(cipher, 0, cipher.size, plain, 0)
-        return plain
     }
 
     /**
