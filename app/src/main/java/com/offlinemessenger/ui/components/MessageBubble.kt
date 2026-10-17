@@ -200,7 +200,6 @@ private fun tickFor(status: MessageStatus): String = when (status) {
 
 @Composable
 private fun tickColor(status: MessageStatus) = when (status) {
-    MessageStatus.DELIVERED -> Emerald400
     MessageStatus.READ -> ReadBlue
     else -> InkLow
 }

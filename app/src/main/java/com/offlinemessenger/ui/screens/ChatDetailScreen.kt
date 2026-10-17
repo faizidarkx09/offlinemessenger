@@ -18,8 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Verified
@@ -61,6 +61,7 @@ import com.offlinemessenger.ui.theme.Charcoal700
 import com.offlinemessenger.ui.theme.Charcoal950
 import com.offlinemessenger.ui.theme.Emerald400
 import com.offlinemessenger.ui.theme.Emerald500
+import com.offlinemessenger.ui.theme.IOSBlue
 import com.offlinemessenger.ui.theme.InkHigh
 import com.offlinemessenger.ui.theme.InkLow
 import com.offlinemessenger.ui.theme.InkMid
@@ -141,7 +142,8 @@ fun ChatDetailScreen(conversationId: String, onBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "back")
+                        // iOS chevron-back
+                        Icon(Icons.Filled.ChevronLeft, "back", tint = IOSBlue)
                     }
                 },
             )

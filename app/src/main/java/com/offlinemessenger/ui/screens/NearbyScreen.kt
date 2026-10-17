@@ -1,5 +1,6 @@
 package com.offlinemessenger.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -7,38 +8,51 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.offlinemessenger.ble.model.DiscoveredPeer
 import com.offlinemessenger.ui.VmFactory
 import com.offlinemessenger.ui.components.Avatar
-import com.offlinemessenger.ui.components.ConnectionDot
 import com.offlinemessenger.ui.components.EmptyState
 import com.offlinemessenger.ui.rememberLocator
 import com.offlinemessenger.ui.shortId
-import com.offlinemessenger.ui.theme.AmberWarn
-import com.offlinemessenger.ui.theme.Charcoal800
-import com.offlinemessenger.ui.theme.Emerald400
-import com.offlinemessenger.ui.theme.InkLow
-import com.offlinemessenger.ui.theme.InkMid
+import com.offlinemessenger.ui.theme.IOSBlack
+import com.offlinemessenger.ui.theme.IOSBlue
+import com.offlinemessenger.ui.theme.IOSGray6
+import com.offlinemessenger.ui.theme.IOSGreen
+import com.offlinemessenger.ui.theme.IOSOrange
+import com.offlinemessenger.ui.theme.IOSSecondary
+import com.offlinemessenger.ui.theme.IOSTertiary
+import com.offlinemessenger.ui.theme.IOSText
 import com.offlinemessenger.viewmodel.NearbyViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,37 +63,46 @@ fun NearbyScreen() {
     val unknown by vm.unknownDevices.collectAsState(initial = emptyList())
     val scanning by vm.scanning.collectAsState(initial = false)
     val bluetoothOn by vm.bluetoothOn.collectAsState(initial = true)
-    val corrupt by vm.corruptFrames.collectAsState(initial = 0)
+    var connectingId by remember { mutableStateOf<String?>(null) }
+    val scope = remember { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main) }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Nearby") }) }) { padding ->
+    Scaffold(containerColor = IOSBlack) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
         ) {
+            item {
+                Spacer(Modifier.height(8.dp))
+                // iOS large title
+                Text(
+                    "Nearby",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = IOSText,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (!bluetoothOn) "Bluetooth is off"
+                    else if (scanning) "Scanning for peers…"
+                    else "Scan paused (battery saver)",
+                    fontSize = 15.sp,
+                    color = IOSSecondary,
+                )
+                Spacer(Modifier.height(16.dp))
+            }
             if (!bluetoothOn) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Charcoal800),
+                        colors = CardDefaults.cardColors(containerColor = IOSGray6),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     ) {
                         Text(
                             "Bluetooth is off — turn it on to discover peers.",
-                            color = AmberWarn,
+                            color = IOSOrange,
                             modifier = Modifier.padding(16.dp),
                         )
                     }
                 }
-            }
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (scanning) "Scanning for peers…" else "Scan paused (battery saver)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = InkMid,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("App peers", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
             }
             if (appPeers.isEmpty()) {
                 item {
@@ -88,80 +111,146 @@ fun NearbyScreen() {
                         title = "No app peers nearby",
                         body = "Install this app on a second phone too, keep both apps " +
                             "open with Bluetooth on, and hold them within 10–60 m — " +
-                            "the other phone will appear here automatically.",
+                            "the other phone will appear here. Tap it to connect instantly.",
                         modifier = Modifier.height(260.dp),
                     )
                 }
             } else {
                 items(appPeers, key = { it.address }) { peer ->
-                    PeerRow(peer = peer, connected = vm.isConnected(peer.deviceId.toString()))
+                    val idStr = peer.deviceId.toString()
+                    val connected = vm.isConnected(idStr)
+                    if (connected && connectingId == idStr) connectingId = null
+                    PeerCard(
+                        peer = peer,
+                        connected = connected,
+                        connecting = connectingId == idStr,
+                        onTap = {
+                            if (!connected && connectingId == null) {
+                                connectingId = idStr
+                                vm.connect(peer)
+                                // Clear the spinner after a while; the dot shows real state.
+                                scope.launch {
+                                    delay(12_000)
+                                    if (connectingId == idStr) connectingId = null
+                                }
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(10.dp))
                 }
             }
             if (unknown.isNotEmpty()) {
                 item {
-                    Spacer(Modifier.height(16.dp))
-                    Text("Other Bluetooth devices", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Other Bluetooth devices", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = IOSText)
                     Text(
-                        "Unidentified — not running this app. Shown for transparency only.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = InkLow,
+                        "Not running this app — shown for transparency only.",
+                        fontSize = 13.sp,
+                        color = IOSTertiary,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
                 items(unknown, key = { it.address }) { peer ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = IOSGray6),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Avatar(name = peer.name ?: "?", size = 40.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(peer.name ?: "Unknown device", style = MaterialTheme.typography.bodyLarge)
-                            Text(peer.address, style = MaterialTheme.typography.bodySmall, color = InkLow)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Avatar(name = peer.name ?: "?", size = 40.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(peer.name ?: "Unknown device", fontSize = 16.sp, color = IOSText)
+                                Text(peer.address, fontSize = 13.sp, color = IOSTertiary)
+                            }
+                            Text("${peer.rssi} dBm", fontSize = 13.sp, color = IOSTertiary)
                         }
-                        Text("${peer.rssi} dBm", style = MaterialTheme.typography.bodySmall, color = InkLow)
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
-            if (corrupt > 0) {
-                item {
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "$corrupt malformed packets ignored (integrity protection working).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = InkLow,
-                    )
-                }
-            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
 
+/** iOS-style tappable peer card. Tap = connect now. */
 @Composable
-private fun PeerRow(peer: DiscoveredPeer, connected: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun PeerCard(
+    peer: DiscoveredPeer,
+    connected: Boolean,
+    connecting: Boolean,
+    onTap: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = IOSGray6),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onTap),
     ) {
-        Avatar(name = peer.name ?: shortId(peer.deviceId.toString()))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                peer.name ?: "Peer ${shortId(peer.deviceId.toString())}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                "${peer.rssi} dBm · ${shortId(peer.deviceId.toString())}",
-                style = MaterialTheme.typography.bodySmall,
-                color = InkLow,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Avatar(name = peer.name ?: shortId(peer.deviceId.toString()), size = 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    peer.name ?: "Peer ${shortId(peer.deviceId.toString())}",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = IOSText,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${peer.rssi} dBm · ${shortId(peer.deviceId.toString())}",
+                    fontSize = 13.sp,
+                    color = IOSTertiary,
+                )
+            }
+            when {
+                connected -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            color = IOSGreen.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                "Connected",
+                                color = IOSGreen,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+                connecting -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = IOSBlue,
+                        strokeWidth = 2.5.dp,
+                    )
+                }
+                else -> {
+                    Surface(color = IOSBlue, shape = RoundedCornerShape(20.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            androidx.compose.material3.Icon(
+                                Icons.Filled.Bluetooth, null,
+                                tint = IOSText,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Connect", color = IOSText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
         }
-        ConnectionDot(connected = connected)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            if (connected) "linked" else "in range",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (connected) Emerald400 else InkMid,
-        )
     }
 }

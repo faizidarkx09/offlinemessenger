@@ -194,6 +194,18 @@ class BleTransport(
 
     fun connectedDeviceIds(): Set<UUID> = _connections.value.map { it.deviceId }.toSet()
 
+    /**
+     * Manual connect, e.g. user tapped a peer in Nearby. Connects immediately
+     * instead of waiting for the auto-connect loop. Safe to call repeatedly.
+     */
+    fun connectNow(deviceId: UUID, device: android.bluetooth.BluetoothDevice) {
+        if (deviceId == myDeviceId) return
+        if (clients.containsKey(deviceId.toString())) return
+        // Already have a link via our GATT server — don't open a second one.
+        if (serverPeerIds.containsValue(deviceId)) return
+        scope.launch { openClient(deviceId, device) }
+    }
+
     /** Sends raw encoded packet bytes to a connected peer. */
     fun sendPacket(destId: UUID, packet: ByteArray): Boolean {
         clients[destId.toString()]?.let {
@@ -226,6 +238,7 @@ class BleTransport(
     private fun openClient(deviceId: UUID, device: BluetoothDevice) {
         val key = deviceId.toString()
         if (clients.containsKey(key)) return
+        if (serverPeerIds.containsValue(deviceId)) return // link already exists via server
         // Assigned before connect(), so the listener can safely use it.
         var clientRef: GattClient? = null
         val client = GattClient(context, device, scope, object : GattClient.Listener {

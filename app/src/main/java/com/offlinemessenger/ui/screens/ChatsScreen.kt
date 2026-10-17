@@ -29,7 +29,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,9 +47,14 @@ import com.offlinemessenger.ui.components.Avatar
 import com.offlinemessenger.ui.components.EmptyState
 import com.offlinemessenger.ui.formatTime
 import com.offlinemessenger.ui.rememberLocator
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import com.offlinemessenger.ui.theme.Emerald400
+import com.offlinemessenger.ui.theme.IOSBlack
+import com.offlinemessenger.ui.theme.IOSBlue
 import com.offlinemessenger.ui.theme.InkLow
 import com.offlinemessenger.ui.theme.InkMid
+import com.offlinemessenger.ui.theme.IOSText
 import com.offlinemessenger.ui.theme.ReadBlue
 import com.offlinemessenger.viewmodel.ChatRow
 import com.offlinemessenger.viewmodel.ChatsViewModel
@@ -67,26 +71,32 @@ fun ChatsScreen(
     val query by vm.searchQuery.collectAsState()
     var pinTarget by remember { mutableStateOf<ChatRow?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("OfflineMessenger") },
-                actions = {
-                    IconButton(onClick = onCreateGroup) {
-                        Icon(Icons.Filled.GroupAdd, "new group", tint = Emerald400)
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Scaffold(containerColor = IOSBlack) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // iOS large title header
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Chats",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = IOSText,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onCreateGroup) {
+                    Icon(Icons.Filled.GroupAdd, "new group", tint = IOSBlue)
+                }
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = { vm.searchQuery.value = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search chats") },
+                placeholder = { Text("Search") },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
             )
             if (chats.isEmpty()) {
                 EmptyState(
@@ -215,7 +225,6 @@ private fun tickFor(status: MessageStatus): String = when (status) {
 }
 
 private fun tickColor(status: MessageStatus) = when (status) {
-    MessageStatus.DELIVERED -> Emerald400
     MessageStatus.READ -> ReadBlue
     else -> InkLow
 }

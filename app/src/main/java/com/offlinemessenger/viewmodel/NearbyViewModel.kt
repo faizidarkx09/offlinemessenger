@@ -22,4 +22,10 @@ class NearbyViewModel(locator: ServiceLocator) : ViewModel() {
 
     fun isConnected(deviceId: String): Boolean =
         connections.value.any { it.deviceId.toString() == deviceId }
+
+    /** User tapped a peer: connect right now instead of waiting for auto-connect. */
+    fun connect(peer: DiscoveredPeer) {
+        val id = peer.deviceId ?: return
+        transport.connectNow(id, peer.device)
+    }
 }
