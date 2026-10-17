@@ -2,6 +2,10 @@ package com.offlinemessenger.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +29,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,8 +58,11 @@ import com.offlinemessenger.ui.components.Avatar
 import com.offlinemessenger.ui.components.MessageBubble
 import com.offlinemessenger.ui.rememberLocator
 import com.offlinemessenger.ui.theme.Charcoal700
+import com.offlinemessenger.ui.theme.Charcoal950
 import com.offlinemessenger.ui.theme.Emerald400
+import com.offlinemessenger.ui.theme.Emerald500
 import com.offlinemessenger.ui.theme.InkHigh
+import com.offlinemessenger.ui.theme.InkLow
 import com.offlinemessenger.ui.theme.InkMid
 import com.offlinemessenger.viewmodel.ChatDetailViewModel
 import com.offlinemessenger.viewmodel.ChatsViewModel
@@ -189,27 +195,47 @@ fun ChatDetailScreen(conversationId: String, onBack: () -> Unit) {
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
+                Surface(
+                    shape = RoundedCornerShape(26.dp),
+                    color = Charcoal700,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message") },
-                    singleLine = false,
-                    maxLines = 4,
-                )
+                ) {
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = InkHigh),
+                        cursorBrush = SolidColor(Emerald400),
+                        maxLines = 4,
+                        decorationBox = { inner ->
+                            if (draft.isEmpty()) {
+                                Text("Message", color = InkLow, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            inner()
+                        },
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        if (draft.isNotBlank()) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (draft.isNotBlank()) Emerald500 else Charcoal700,
+                    modifier = Modifier.clickable(
+                        enabled = draft.isNotBlank(),
+                        onClick = {
                             vm.send(draft)
                             draft = ""
-                        }
-                    },
+                        },
+                    ),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "send", tint = Emerald400)
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        "send",
+                        tint = if (draft.isNotBlank()) Charcoal950 else InkLow,
+                        modifier = Modifier.padding(13.dp),
+                    )
                 }
             }
         }

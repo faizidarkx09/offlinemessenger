@@ -1,5 +1,9 @@
 package com.offlinemessenger.ui.nav
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
@@ -86,7 +90,13 @@ fun AppNav() {
                     onCreateGroup = { nav.navigate("group_create") },
                 )
             }
-            composable("group_create") {
+            composable(
+                route = "group_create",
+                enterTransition = { slideInHorizontally { it } + fadeIn() },
+                exitTransition = { slideOutHorizontally { it } + fadeOut() },
+                popEnterTransition = { slideInHorizontally { -it / 3 } + fadeIn() },
+                popExitTransition = { slideOutHorizontally { it } + fadeOut() },
+            ) {
                 GroupCreateScreen(
                     onBack = { nav.popBackStack() },
                     onGroupCreated = { id ->
@@ -98,6 +108,10 @@ fun AppNav() {
             composable(
                 route = "chat/{conversationId}",
                 arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
+                enterTransition = { slideInHorizontally { it } + fadeIn() },
+                exitTransition = { slideOutHorizontally { it } + fadeOut() },
+                popEnterTransition = { slideInHorizontally { -it / 3 } + fadeIn() },
+                popExitTransition = { slideOutHorizontally { it } + fadeOut() },
             ) { entry ->
                 ChatDetailScreen(
                     conversationId = entry.arguments?.getString("conversationId").orEmpty(),

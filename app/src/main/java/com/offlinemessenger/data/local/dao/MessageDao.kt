@@ -27,11 +27,16 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestampMs ASC")
     fun conversation(conversationId: String): Flow<List<MessageEntity>>
 
-    /** Chat list: latest message per conversation. */
+    /**
+     * Chat list: exactly one row per conversation. The old MAX(timestampMs)
+     * form returned TWO rows when two messages shared a timestamp, which
+     * crashed LazyColumn with a duplicate-key exception.
+     */
     @Query(
         """
-        SELECT * FROM messages m1 WHERE timestampMs =
-          (SELECT MAX(timestampMs) FROM messages m2 WHERE m2.conversationId = m1.conversationId)
+        SELECT * FROM messages m1 WHERE msgId =
+          (SELECT m2.msgId FROM messages m2 WHERE m2.conversationId = m1.conversationId
+           ORDER BY m2.timestampMs DESC, m2.msgId DESC LIMIT 1)
         ORDER BY timestampMs DESC
         """,
     )
