@@ -59,11 +59,13 @@ class BleAdvertiser(private val context: Context) {
             .setTimeout(0)
             .build()
         val serviceData = BleConstants.AD_MAGIC + deviceId.toBytes()
+        // 16-bit UUID keeps the packet small:
+        // flags(3) + 16-bit uuid(4) + service data(2+2+18=22) = 29 bytes <= 31.
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .setIncludeTxPowerLevel(false)
-            .addServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
-            .addServiceData(ParcelUuid(BleConstants.SERVICE_UUID), serviceData)
+            .addServiceUuid(BleConstants.ADVERTISE_PARCEL_UUID)
+            .addServiceData(BleConstants.ADVERTISE_PARCEL_UUID, serviceData)
             .build()
         try {
             adv.startAdvertising(settings, data, callback)

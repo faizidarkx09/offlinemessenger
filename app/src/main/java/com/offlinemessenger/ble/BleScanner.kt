@@ -57,7 +57,7 @@ class BleScanner(
 
     private fun handle(result: ScanResult) {
         val record = result.scanRecord ?: return
-        val serviceData = record.getServiceData(ParcelUuid(BleConstants.SERVICE_UUID))
+        val serviceData = record.getServiceData(BleConstants.ADVERTISE_PARCEL_UUID)
         val now = System.currentTimeMillis()
         val deviceId = if (serviceData != null &&
             serviceData.size >= BleConstants.AD_MAGIC.size + BleConstants.AD_DEVICE_ID_LEN &&
@@ -93,7 +93,7 @@ class BleScanner(
         if (loopJob?.isActive == true) return
         loopJob = scope.launch {
             val filter = ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
+                .setServiceUuid(BleConstants.ADVERTISE_PARCEL_UUID)
                 .build()
             // No filter would also surface unidentified devices; we run a second
             // unfiltered low-duty pass so the Nearby screen can list them too.

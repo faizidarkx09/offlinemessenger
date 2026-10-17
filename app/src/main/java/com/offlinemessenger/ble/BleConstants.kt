@@ -26,6 +26,15 @@ object BleConstants {
     val SERVICE_PARCEL_UUID: ParcelUuid = ParcelUuid(SERVICE_UUID)
 
     /**
+     * 16-bit alias used ONLY inside BLE advertisements. A 128-bit service UUID
+     * plus the 18-byte service-data header = 57 bytes, over the 31-byte
+     * advertisement limit, so the stack rejects the packet. The GATT server
+     * still exposes [SERVICE_UUID]; this UUID is just the discovery beacon.
+     */
+    val ADVERTISE_UUID: UUID = UUID.fromString("0000FD6F-0000-1000-8000-00805F9B34FB")
+    val ADVERTISE_PARCEL_UUID: ParcelUuid = ParcelUuid(ADVERTISE_UUID)
+
+    /**
      * 2-byte magic at the start of the advertise service-data payload.
      * Followed by the 16-byte device id of the advertiser.
      */

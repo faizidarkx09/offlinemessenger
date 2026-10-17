@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import com.offlinemessenger.crypto.CryptoManager
 import com.offlinemessenger.crypto.SecureStore
 import com.offlinemessenger.protocol.DecodedPacket
@@ -122,7 +123,14 @@ class BleTransport(
             return false
         }
         _bluetoothOn.value = true
-        context.registerReceiver(btReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        // Android 14+ (targetSdk 34) throws SecurityException without an explicit
+        // exported-ness flag. This receiver is app-internal: not exported.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(btReceiver, btFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(btReceiver, btFilter)
+        }
         advertiser.start(myDeviceId)
         scanner.start()
         if (!server.start()) {
