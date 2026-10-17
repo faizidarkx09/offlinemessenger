@@ -55,6 +55,25 @@ class BleTransport(
 
     private val advertiser = BleAdvertiser(context)
     private val scanner = BleScanner(context, scope)
+    private val serverListener = object : GattServerManager.Listener {
+        override fun onPacketReceived(fromAddress: String, packet: ByteArray) {
+            handleRaw(serverPeerIds[fromAddress], fromAddress, packet)
+        }
+
+        override fun onDeviceConnected(address: String, device: BluetoothDevice) {
+            // Identity is established by the HELLO packet, not by the link.
+        }
+
+        override fun onDeviceDisconnected(address: String) {
+            val id = serverPeerIds.remove(address)
+            if (id != null) eventListener?.onPeerDisconnected(id)
+            refreshConnections()
+        }
+
+        override fun onCorruptFrame(address: String) {
+            _corruptFrames.value += 1
+        }
+    }
     private val server = GattServerManager(context, serverListener)
 
     val discoveredPeers: StateFlow<List<com.offlinemessenger.ble.model.DiscoveredPeer>> = scanner.peers
@@ -169,13 +188,15 @@ class BleTransport(
     private fun openClient(deviceId: UUID, device: BluetoothDevice) {
         val key = deviceId.toString()
         if (clients.containsKey(key)) return
+        // Assigned before connect(), so the listener can safely use it.
+        var clientRef: GattClient? = null
         val client = GattClient(context, device, scope, object : GattClient.Listener {
             override fun onPacketReceived(packet: ByteArray) {
                 handleRaw(deviceId, device.address, packet)
             }
 
             override fun onReady() {
-                client.send(helloPacket())
+                clientRef?.send(helloPacket())
                 eventListener?.onPeerConnected(deviceId)
                 refreshConnections()
             }
@@ -191,28 +212,9 @@ class BleTransport(
                 refreshConnections()
             }
         })
+        clientRef = client
         clients[key] = client
         client.connect()
-    }
-
-    private val serverListener = object : GattServerManager.Listener {
-        override fun onPacketReceived(fromAddress: String, packet: ByteArray) {
-            handleRaw(serverPeerIds[fromAddress], fromAddress, packet)
-        }
-
-        override fun onDeviceConnected(address: String, device: BluetoothDevice) {
-            // Identity is established by the HELLO packet, not by the link.
-        }
-
-        override fun onDeviceDisconnected(address: String) {
-            val id = serverPeerIds.remove(address)
-            if (id != null) eventListener?.onPeerDisconnected(id)
-            refreshConnections()
-        }
-
-        override fun onCorruptFrame(address: String) {
-            _corruptFrames.value += 1
-        }
     }
 
     private fun handleRaw(fromDeviceId: UUID?, fromAddress: String, raw: ByteArray) {

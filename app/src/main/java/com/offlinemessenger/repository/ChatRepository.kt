@@ -331,7 +331,8 @@ class ChatRepository(
         val now = System.currentTimeMillis()
         relayQueueDao.deleteExpired(now)
         for (entry in relayQueueDao.pending(now)) {
-            val decoded = Packet.decode(entry.packet) ?: run {
+            val decoded = Packet.decode(entry.packet)
+            if (decoded == null) {
                 relayQueueDao.remove(entry.id)
                 continue
             }

@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
  * Multi-hop routes are learned estimates (expiry-bounded).
  * The UI must render these two categories distinctly.
  */
-class TopologyViewModel(locator: ServiceLocator) : ViewModel() {
+class TopologyViewModel(private val locator: ServiceLocator) : ViewModel() {
     private val transport = locator.bleTransport
     private val peers = locator.peerRepository
     private val repo = locator.chatRepository

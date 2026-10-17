@@ -50,7 +50,7 @@ class CryptoManager(
         } else {
             val pk = ByteArray(KX_PUBLIC_KEY_BYTES)
             val sk = ByteArray(KX_SECRET_KEY_BYTES)
-            check(sodium.cryptoKxKeypair(pk, sk) == 0) { "libsodium keypair generation failed" }
+            check(sodium.cryptoKxKeypair(pk, sk)) { "libsodium keypair generation failed" }
             store.storeKeyPair(pk, sk)
             pk
         }
@@ -83,17 +83,17 @@ class CryptoManager(
         } else {
             sodium.cryptoKxServerSessionKeys(rx, tx, publicKey, secretKey, peerPublicKey)
         }
-        if (ok != 0) return null
+        if (!ok) return null
         return SessionKeys(rx, tx)
     }
 
     /** Encrypts [plaintext] for the peer. Output: nonce(24) || ciphertext. */
     fun encrypt(keys: SessionKeys, plaintext: ByteArray): ByteArray? {
-        val nonce = ByteArray(SECRETBOX_NONCE_BYTES)
-        sodium.randombytesBuf(nonce, nonce.size)
+        val nonce = sodium.randomBytesBuf(SECRETBOX_NONCE_BYTES)
         val cipher = ByteArray(plaintext.size + SECRETBOX_MAC_BYTES)
-        val ok = sodium.cryptoSecretBoxEasy(cipher, plaintext, plaintext.size.toLong(), nonce, keys.tx)
-        if (ok != 0) return null
+        if (!sodium.cryptoSecretBoxEasy(cipher, plaintext, plaintext.size.toLong(), nonce, keys.tx)) {
+            return null
+        }
         return nonce + cipher
     }
 
@@ -103,8 +103,9 @@ class CryptoManager(
         val nonce = sealed.copyOfRange(0, SECRETBOX_NONCE_BYTES)
         val cipher = sealed.copyOfRange(SECRETBOX_NONCE_BYTES, sealed.size)
         val plain = ByteArray(cipher.size - SECRETBOX_MAC_BYTES)
-        val ok = sodium.cryptoSecretBoxOpenEasy(plain, cipher, cipher.size.toLong(), nonce, keys.rx)
-        if (ok != 0) return null
+        if (!sodium.cryptoSecretBoxOpenEasy(plain, cipher, cipher.size.toLong(), nonce, keys.rx)) {
+            return null
+        }
         return plain
     }
 
