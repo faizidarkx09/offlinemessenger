@@ -16,6 +16,7 @@ import com.offlinemessenger.protocol.HelloPayload
 import com.offlinemessenger.protocol.Packet
 import com.offlinemessenger.protocol.PacketType
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -101,14 +102,43 @@ class BleTransport(
 
     @Volatile private var started = false
 
+    @Volatile private var receiverRegistered = false
+
     private val btReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
                 val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
                 _bluetoothOn.value = state == BluetoothAdapter.STATE_ON
-                if (state != BluetoothAdapter.STATE_ON) stopRadio()
+                if (state == BluetoothAdapter.STATE_ON) {
+                    // Bluetooth was just enabled: (re)start the radio.
+                    start()
+                } else {
+                    stopRadio()
+                }
             }
         }
+    }
+
+    private fun registerBtReceiver() {
+        if (receiverRegistered) return
+        val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        // Android 14+ (targetSdk 34) throws SecurityException without an explicit
+        // exported-ness flag. This receiver is app-internal: not exported.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(btReceiver, btFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(btReceiver, btFilter)
+        }
+        receiverRegistered = true
+    }
+
+    private fun unregisterBtReceiver() {
+        if (!receiverRegistered) return
+        try {
+            context.unregisterReceiver(btReceiver)
+        } catch (_: Exception) {
+        }
+        receiverRegistered = false
     }
 
     private fun adapter(): BluetoothAdapter? =
@@ -123,14 +153,7 @@ class BleTransport(
             return false
         }
         _bluetoothOn.value = true
-        val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
-        // Android 14+ (targetSdk 34) throws SecurityException without an explicit
-        // exported-ness flag. This receiver is app-internal: not exported.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(btReceiver, btFilter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(btReceiver, btFilter)
-        }
+        registerBtReceiver()
         advertiser.start(myDeviceId)
         scanner.start()
         if (!server.start()) {
@@ -138,21 +161,24 @@ class BleTransport(
             return false
         }
         started = true
-        scope.launch { autoConnectLoop() }
+        if (autoConnectJob?.isActive != true) {
+            autoConnectJob = scope.launch { autoConnectLoop() }
+        }
         return true
     }
 
     fun stop() {
         sendByeToAll()
         stopRadio()
-        try {
-            context.unregisterReceiver(btReceiver)
-        } catch (_: Exception) {
-        }
+        unregisterBtReceiver()
     }
+
+    private var autoConnectJob: Job? = null
 
     private fun stopRadio() {
         started = false
+        autoConnectJob?.cancel()
+        autoConnectJob = null
         clients.values.forEach { runCatching { it.disconnect() } }
         clients.clear()
         serverPeerIds.clear()

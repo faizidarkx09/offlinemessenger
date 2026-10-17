@@ -86,8 +86,9 @@ fun NearbyScreen() {
                     EmptyState(
                         icon = Icons.Filled.Radar,
                         title = "No app peers nearby",
-                        body = "Peers running OfflineMessenger appear here automatically. " +
-                            "Typical BLE range is 10–60 m indoors.",
+                        body = "Install this app on a second phone too, keep both apps " +
+                            "open with Bluetooth on, and hold them within 10–60 m — " +
+                            "the other phone will appear here automatically.",
                         modifier = Modifier.height(260.dp),
                     )
                 }

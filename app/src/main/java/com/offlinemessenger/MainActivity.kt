@@ -1,5 +1,8 @@
 package com.offlinemessenger
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,8 +26,16 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             permissionsGranted = result.values.all { it }
-            if (permissionsGranted) startRadioService()
+            if (permissionsGranted) {
+                startRadioService()
+                ensureBluetoothOn()
+            }
         }
+
+    /** System dialog asking the user to enable Bluetooth; the transport
+     * auto-starts the radio when it observes STATE_ON. */
+    private val enableBtLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +59,7 @@ class MainActivity : ComponentActivity() {
         permissionsGranted = BlePermissions.granted(this)
         if (permissionsGranted) {
             startRadioService()
+            ensureBluetoothOn()
         } else {
             permissionLauncher.launch(BlePermissions.required())
         }
@@ -72,10 +84,23 @@ class MainActivity : ComponentActivity() {
             permissionsGranted = true
             startRadioService()
         }
+        if (permissionsGranted) ensureBluetoothOn()
     }
 
     private fun startRadioService() {
         val intent = Intent(this, MessengerService::class.java)
         ContextCompat.startForegroundService(this, intent)
+    }
+
+    /** Prompts to enable Bluetooth if it is off (messaging needs the radio). */
+    private fun ensureBluetoothOn() {
+        val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val adapter: BluetoothAdapter? = manager.adapter
+        if (adapter != null && !adapter.isEnabled) {
+            try {
+                enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            } catch (_: Exception) {
+            }
+        }
     }
 }
