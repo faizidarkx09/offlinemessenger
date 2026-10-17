@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import com.offlinemessenger.ble.BlePermissions
 import com.offlinemessenger.service.MessengerService
 import com.offlinemessenger.ui.nav.AppNav
+import com.offlinemessenger.ui.screens.CrashReportScreen
 import com.offlinemessenger.ui.screens.PermissionsScreen
 import com.offlinemessenger.ui.theme.OfflineMessengerTheme
 
@@ -27,6 +28,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Diagnostic: if the last run crashed, show the report instead of
+        // running the normal flow (which would crash again immediately).
+        val report = OfflineMessengerApp.readCrashReport(application as OfflineMessengerApp)
+        if (report != null) {
+            setContent {
+                OfflineMessengerTheme {
+                    CrashReportScreen(
+                        report = report,
+                        onClear = {
+                            OfflineMessengerApp.clearCrashReport(application as OfflineMessengerApp)
+                            recreate()
+                        },
+                    )
+                }
+            }
+            return
+        }
         permissionsGranted = BlePermissions.granted(this)
         if (permissionsGranted) {
             startRadioService()
